@@ -15,7 +15,7 @@ def transcribe_file(model, processor, path: Path) -> str:
     audio, sr = sf.read(str(path))
     inputs = processor(audio, sampling_rate=sr, return_tensors="pt")
     inputs = inputs.to(model.device)
-    with torch.no_grad():
+    with torch.inference_mode():
         generated_ids = model.generate(**inputs)
     transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
     return transcription
@@ -30,7 +30,7 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     processor = AutoProcessor.from_pretrained(MODEL_ID)
     model = AutoModelForSpeechSeq2Seq.from_pretrained(MODEL_ID)
-    model.to(device)
+    model.to(device).eval()
 
     input_path = Path(args.input)
     audio_files = [input_path] if input_path.is_file() else sorted(
