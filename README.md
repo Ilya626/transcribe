@@ -41,6 +41,33 @@ python evaluation/compare_transcriptions.py reference.json whisper.json canary.j
 
 This prints the same set of metrics for each predictions file, allowing quick comparison between models.
 
+## Finetuning
+
+Experimental fine-tuning of Whisper models is supported via
+`training/finetune_whisper.py`.  It expects two JSON manifests with
+fields `audio` (path to a WAV file) and `text` (reference transcript):
+
+```bash
+python training/finetune_whisper.py train.json eval.json out_dir \
+    --model_id openai/whisper-small --batch_size 2 --num_epochs 1
+```
+
+The defaults aim at a Windows desktop with an RTX&nbsp;4070&nbsp;Ti (12&nbsp;GB).
+Adjust the model size or batch parameters if you hit out-of-memory
+errors.
+
+For NVIDIA's Canary models, `training/finetune_canary.py` performs
+LoRA-based fine-tuning using the NeMo toolkit and Lhotse manifests.  It
+requires JSONL manifests with `audio_filepath` and `text` fields:
+
+```bash
+python training/finetune_canary.py --nemo path/to/model.nemo \
+    --train train.jsonl --val val.jsonl
+```
+
+The script injects LoRA adapters, runs training and exports a merged
+`.nemo` checkpoint on completion.
+
 ## Requirements
 
 Install dependencies:

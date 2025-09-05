@@ -5,5 +5,11 @@ jiwer
 sentence-transformers
 torchaudio
 vosk
+datasets
+evaluate
+accelerate
+lightning
+nemo_toolkit
+lhotse
 # GigaAM requires extra installation
 # pip install git+https://github.com/salute-developers/GigaAM
