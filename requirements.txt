@@ -1,0 +1,9 @@
+transformers>=4.39.0
+torch
+soundfile
+jiwer
+sentence-transformers
+torchaudio
+vosk
+# GigaAM requires extra installation
+# pip install git+https://github.com/salute-developers/GigaAM
