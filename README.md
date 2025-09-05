@@ -30,7 +30,8 @@ To compare predictions with reference transcripts, use:
 python evaluation/evaluate_transcriptions.py reference.json predictions.json
 ```
 
-The script prints word error rate (WER), character error rate (CER) and a semantic similarity score using Sentence-Transformers.
+The script prints word error rate (WER), character error rate (CER), sentence error rate (SER) and a semantic similarity score. It
+also reports counts of substitutions, insertions and deletions.
 
 To evaluate several model outputs in one run:
 
@@ -38,7 +39,7 @@ To evaluate several model outputs in one run:
 python evaluation/compare_transcriptions.py reference.json whisper.json canary.json gigaam.json
 ```
 
-This prints metrics for each predictions file, allowing quick comparison between models.
+This prints the same set of metrics for each predictions file, allowing quick comparison between models.
 
 ## Requirements
 

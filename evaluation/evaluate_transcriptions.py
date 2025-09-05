@@ -1,10 +1,15 @@
-"""Evaluate ASR predictions against references using lexical and semantic metrics."""
+"""Evaluate ASR predictions against references using lexical and semantic metrics.
+
+The script reports word, character and sentence error rates (WER, CER, SER),
+breaks down lexical errors by substitution/insertion/deletion counts and also
+computes semantic similarity via Sentence-Transformers.
+"""
 import argparse
 import json
 import string
 from pathlib import Path
 
-from jiwer import cer, wer
+from jiwer import cer, process_words
 from sentence_transformers import SentenceTransformer, util
 
 
@@ -45,9 +50,18 @@ def main() -> None:
     if not ids:
         raise ValueError("No matching keys between references and predictions")
 
-    w_error = wer(refs_norm, preds_norm)
+    # Lexical metrics
+    word_info = process_words(refs_norm, preds_norm)
+    w_error = word_info.wer
     c_error = cer(refs_norm, preds_norm)
-    print(f"WER: {w_error:.4f}\nCER: {c_error:.4f}")
+    ser = sum(r != p for r, p in zip(refs_norm, preds_norm)) / len(refs_norm)
+    print(
+        f"WER: {w_error:.4f}\nCER: {c_error:.4f}\nSER: {ser:.4f}"
+    )
+    print(
+        f"Substitutions: {word_info.substitutions} | "
+        f"Insertions: {word_info.insertions} | Deletions: {word_info.deletions}"
+    )
 
     model = SentenceTransformer(args.model)
     ref_emb = model.encode(refs_norm, convert_to_tensor=True)

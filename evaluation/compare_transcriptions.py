@@ -1,10 +1,14 @@
-"""Compare multiple ASR prediction sets against references using lexical and semantic metrics."""
+"""Compare multiple ASR prediction sets against references.
+
+The script outputs WER, CER, SER, substitution/insertion/deletion counts and
+semantic similarity for each predictions file.
+"""
 import argparse
 import json
 import string
 from pathlib import Path
 
-from jiwer import wer, cer
+from jiwer import cer, process_words
 from sentence_transformers import SentenceTransformer, util
 
 
@@ -19,8 +23,10 @@ def load_json(path: Path) -> dict:
         return json.load(f)
 
 
-def evaluate(refs: dict, preds: dict, model: SentenceTransformer) -> tuple[float, float, float]:
-    """Return WER, CER and semantic similarity for matching keys."""
+def evaluate(
+    refs: dict, preds: dict, model: SentenceTransformer
+) -> tuple[float, float, float, float, int, int, int]:
+    """Return WER, CER, SER, semantic similarity and error counts."""
     refs_norm, preds_norm = [], []
     for k, ref in refs.items():
         if k in preds:
@@ -29,12 +35,22 @@ def evaluate(refs: dict, preds: dict, model: SentenceTransformer) -> tuple[float
     if not refs_norm:
         raise ValueError("No matching keys between references and predictions")
 
-    w_error = wer(refs_norm, preds_norm)
+    word_info = process_words(refs_norm, preds_norm)
+    w_error = word_info.wer
     c_error = cer(refs_norm, preds_norm)
+    ser = sum(r != p for r, p in zip(refs_norm, preds_norm)) / len(refs_norm)
     ref_emb = model.encode(refs_norm, convert_to_tensor=True)
     pred_emb = model.encode(preds_norm, convert_to_tensor=True)
     semantic = float(util.cos_sim(ref_emb, pred_emb).diagonal().mean())
-    return w_error, c_error, semantic
+    return (
+        w_error,
+        c_error,
+        ser,
+        semantic,
+        word_info.substitutions,
+        word_info.insertions,
+        word_info.deletions,
+    )
 
 
 def main() -> None:
@@ -53,11 +69,23 @@ def main() -> None:
 
     for pred_path in args.predictions:
         preds = load_json(Path(pred_path))
-        wer_score, cer_score, semantic = evaluate(refs, preds, st_model)
+        (
+            wer_score,
+            cer_score,
+            ser_score,
+            semantic,
+            subs,
+            ins,
+            dels,
+        ) = evaluate(refs, preds, st_model)
         label = Path(pred_path).stem
         print(f"\nResults for {label}:")
         print(f"WER: {wer_score:.4f}")
         print(f"CER: {cer_score:.4f}")
+        print(f"SER: {ser_score:.4f}")
+        print(
+            f"Substitutions: {subs} | Insertions: {ins} | Deletions: {dels}"
+        )
         print(f"Semantic similarity: {semantic:.4f}")
 
 
