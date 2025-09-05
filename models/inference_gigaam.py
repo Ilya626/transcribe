@@ -5,6 +5,7 @@ from pathlib import Path
 
 import soundfile as sf  # ensures dependency available if audio pre-processing needed
 import gigaam
+import torch
 
 
 def main() -> None:
@@ -17,6 +18,8 @@ def main() -> None:
     args = parser.parse_args()
 
     model = gigaam.load_model(args.model)
+    if hasattr(model, "eval"):
+        model.eval()
 
     input_path = Path(args.input)
     audio_files = [input_path] if input_path.is_file() else sorted(
@@ -26,10 +29,15 @@ def main() -> None:
     results = {}
     for audio_path in audio_files:
         print(f"Transcribing {audio_path}...")
-        transcription = model.transcribe(str(audio_path))
+        with torch.inference_mode():
+            transcription = model.transcribe(str(audio_path))
         # some versions may return dict with 'transcription' key
         if isinstance(transcription, dict):
-            transcription = transcription.get("transcription") or transcription.get("text") or ""
+            transcription = (
+                transcription.get("transcription")
+                or transcription.get("text")
+                or ""
+            )
         results[str(audio_path)] = transcription
 
     with open(args.output, "w", encoding="utf-8") as f:

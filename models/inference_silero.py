@@ -11,10 +11,10 @@ def load_model(device):
         repo_or_dir="snakers4/silero-models",
         model="silero_stt",
         language="ru",
-        model_id="ru_v4"
+        model_id="ru_v4",
     )
     (read_batch, split_into_batches, read_audio, prepare_model_input) = utils
-    model.to(device)
+    model.to(device).eval()
     return model, decoder, read_audio, split_into_batches, prepare_model_input
 
 
@@ -22,7 +22,8 @@ def transcribe_file(model, decoder, read_audio, split_into_batches, prepare_mode
     audio = read_audio(str(path))
     batches = split_into_batches([audio], batch_size=1)
     input_data = prepare_model_input(batches, device=model.device)
-    output = model(input_data)
+    with torch.inference_mode():
+        output = model(input_data)
     transcription = decoder(output[0].cpu())
     return transcription
 
