@@ -11,6 +11,8 @@ accelerate
 lightning
 nemo_toolkit
 lhotse
+bert-score
+matplotlib
 # GigaAM requires extra installation
 # pip install git+https://github.com/salute-developers/GigaAM
 # Optional for advanced evaluation
