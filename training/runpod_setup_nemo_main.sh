@@ -31,6 +31,14 @@ echo "[ENV] Configuring project-local caches..."
 source "$(dirname "$0")/../env.sh"
 
 echo "[CUDA] Torch: " $(python -c "import torch;print(torch.__version__, torch.cuda.is_available())")
-python -c "import nemo_toolkit, nemo.collections.asr as asr; print('NeMo OK, ASR imported')"
+python - <<'PY'
+try:
+  import nemo
+  from nemo.collections import asr
+  print('NeMo OK, ASR imported', getattr(nemo, '__version__', 'unknown'))
+except Exception as e:
+  import sys
+  print('NeMo import failed:', e)
+  sys.exit(1)
+PY
 echo "[READY] Setup (NeMo main) complete."
-

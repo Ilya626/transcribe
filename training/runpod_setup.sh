@@ -28,5 +28,13 @@ echo "[ENV] Configuring project-local caches..."
 source "$(dirname "$0")/../env.sh"
 
 echo "[CUDA] Torch: " $(python -c "import torch;print(torch.__version__, torch.cuda.is_available())")
+# Validate NeMo import (package name is 'nemo')
+python - <<'PY'
+try:
+  import nemo
+  from nemo.collections import asr
+  print('[OK] NeMo imported:', getattr(nemo, '__version__', 'unknown'))
+except Exception as e:
+  print('[WARN] NeMo import check failed:', e)
+PY
 echo "[READY] Setup complete."
-
