@@ -25,3 +25,28 @@
 - Add `--engine pipeline` for Whisper to chunk long-form (`chunk_length_s=30`).
 - Always set `--language ru --task transcribe` for Whisper/Canary to avoid auto-translate.
 - Scripts enforce a simple GPU lock to avoid concurrent runs.
+
+## 5. Fine-tune (Canary)
+
+### LoRA (Runpod)
+```
+python transcribe/training/runpod_nemo_canary_lora.py \
+  --nemo /workspace/models/canary-1b-v2.nemo \
+  --train /workspace/data/train_portable.jsonl \
+  --val   /workspace/data/val_portable.jsonl \
+  --outdir /workspace/exp/canary_ru_lora \
+  --export /workspace/models/canary-ru-lora.nemo \
+  --preset a6000-max --early_stop --es_patience 4 --es_min_delta 0.003
+```
+
+### Partial unfreezing (deeper FT)
+```
+python transcribe/training/runpod_nemo_canary_partial.py \
+  --nemo /workspace/models/canary-1b-v2.nemo \
+  --train /workspace/data/train_portable.jsonl \
+  --val   /workspace/data/val_portable.jsonl \
+  --outdir /workspace/exp/canary_partial_e4_d2 \
+  --export /workspace/models/canary-partial-e4-d2.nemo \
+  --unfreeze_encoder_last 4 --unfreeze_decoder_last 2 --unfreeze_head \
+  --preset a6000-fast --early_stop --es_patience 4 --es_min_delta 0.003
+```

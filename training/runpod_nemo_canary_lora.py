@@ -31,7 +31,7 @@ import os
 import shutil
 
 import torch
-from lightning.pytorch import Trainer
+from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import Callback, LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
@@ -148,6 +148,14 @@ def main():
     ap.add_argument("--resume", default="", help="Optional path to Lightning checkpoint to resume from (ckpt_path)")
     ap.add_argument("--num_workers", type=int, default=8, help="DataLoader workers (Linux: 8; Windows: 0)")
     ap.add_argument("--preset", choices=["a6000-fast", "a6000-max"], default=None, help="Pre-tuned config profiles")
+    # Scheduler / optimization best-practice
+    ap.add_argument("--sched", choices=["cosine", "inverse_sqrt", "none"], default="inverse_sqrt")
+    ap.add_argument("--warmup_steps", type=int, default=None)
+    ap.add_argument("--warmup_ratio", type=float, default=None)
+    ap.add_argument("--min_lr", type=float, default=1e-6)
+    ap.add_argument("--fused_optim", action="store_true", help="Try fused AdamW if supported")
+    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--max_duration", type=float, default=40.0, help="Max utterance duration (s) for Lhotse sampler")
     # Generalization & control
     ap.add_argument("--monitor", default="val_loss", help="Metric name to monitor for best/early stop")
     ap.add_argument("--early_stop", action="store_true", help="Enable EarlyStopping on --monitor")
@@ -163,6 +171,12 @@ def main():
 
     # Safer CUDA allocator by default
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    # Seed
+    try:
+        seed_everything(int(args.seed), workers=True)
+    except Exception:
+        pass
 
     Path(args.outdir).mkdir(parents=True, exist_ok=True)
     Path(Path(args.export).parent).mkdir(parents=True, exist_ok=True)
@@ -221,6 +235,37 @@ def main():
                 old = cfg.optim.weight_decay
                 cfg.optim.weight_decay = args.weight_decay
                 print(f"[OPT] Overriding weight_decay: {old} -> {cfg.optim.weight_decay}")
+            # Fused AdamW when available
+            if args.fused_optim and hasattr(cfg.optim, "fused"):
+                try:
+                    cfg.optim.fused = True
+                    print("[OPT] Using fused AdamW")
+                except Exception:
+                    pass
+            # Scheduler override
+            try:
+                sched = None
+                if args.sched == "cosine":
+                    sched = {
+                        "name": "CosineAnnealing",
+                        "min_lr": float(args.min_lr),
+                        "warmup_steps": int(args.warmup_steps) if args.warmup_steps else None,
+                        "warmup_ratio": float(args.warmup_ratio) if args.warmup_ratio else None,
+                    }
+                elif args.sched == "inverse_sqrt":
+                    sched = {
+                        "name": "InverseSquareRootAnnealing",
+                        "min_lr": float(args.min_lr),
+                        "warmup_steps": int(args.warmup_steps) if args.warmup_steps else None,
+                        "warmup_ratio": float(args.warmup_ratio) if args.warmup_ratio else None,
+                    }
+                elif args.sched == "none":
+                    sched = {"name": "Null"}
+                if sched is not None:
+                    cfg.optim.sched = sched
+                    print(f"[OPT] Scheduler -> {sched['name']}")
+            except Exception as e:
+                print("[OPT][WARN] Cannot set scheduler:", e)
     except Exception as e:
         print(f"[OPT][WARN] Could not override optimizer cfg: {e}")
 
@@ -333,6 +378,8 @@ def main():
         "batch_size": int(args.bs),
         "pretokenize": False,
         "pin_memory": True,
+        "max_duration": float(args.max_duration),
+        "persistent_workers": bool(int(args.num_workers) > 0),
         # keys below are for non-Lhotse manifest paths and ignored by Lhotse; avoid warnings
     }
     val_cfg = {
@@ -343,6 +390,8 @@ def main():
         "batch_size": int(args.bs),
         "pretokenize": False,
         "pin_memory": True,
+        "max_duration": float(args.max_duration),
+        "persistent_workers": bool(int(args.num_workers) > 0),
     }
 
     # The model's setup_* functions in our Windows script generate Lhotse cuts from JSONL.
