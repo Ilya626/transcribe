@@ -12,6 +12,7 @@ from pathlib import Path
 
 from jiwer import cer, process_words
 from sentence_transformers import SentenceTransformer, util
+from evaluation.advanced.align import align_tokens, tokenize
 
 
 TRANSFORMER_MODEL = "paraphrase-multilingual-mpnet-base-v2"
@@ -88,6 +89,13 @@ def main() -> None:
     parser.add_argument(
         "--model", default=TRANSFORMER_MODEL, help="Sentence-transformer model for semantic similarity"
     )
+    parser.add_argument("--werd", action="store_true", help="Compute weighted WER (WERd)")
+    parser.add_argument(
+        "--werd_weights",
+        type=str,
+        default=None,
+        help="Optional JSON mapping token->weight for WERd",
+    )
     args = parser.parse_args()
 
     _ensure_local_caches()
@@ -119,6 +127,37 @@ def main() -> None:
         f"Substitutions: {word_info.substitutions} | "
         f"Insertions: {word_info.insertions} | Deletions: {word_info.deletions}"
     )
+
+    if args.werd:
+        weights = {}
+        if args.werd_weights:
+            with open(args.werd_weights, "r", encoding="utf-8") as wf:
+                obj = json.load(wf)
+                if isinstance(obj, dict):
+                    weights = {str(k): float(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    for item in obj:
+                        if isinstance(item, dict):
+                            for k, v in item.items():
+                                weights[str(k)] = float(v)
+
+        def compute_werd(refs: list[str], hyps: list[str]) -> float:
+            total = 0.0
+            err = 0.0
+            for r, h in zip(refs, hyps):
+                r_toks = tokenize(r)
+                h_toks = tokenize(h)
+                total += sum(weights.get(t, 1.0) for t in r_toks)
+                ops = align_tokens(r_toks, h_toks)
+                for o in ops:
+                    if o.op in ("sub", "del") and o.ref is not None:
+                        err += weights.get(o.ref, 1.0)
+                    elif o.op == "ins" and o.hyp is not None:
+                        err += weights.get(o.hyp, 1.0)
+            return err / max(total, 1.0)
+
+        werd = compute_werd(refs_norm, preds_norm)
+        print(f"WERd: {werd:.4f}")
 
     model = SentenceTransformer(args.model)
     ref_emb = model.encode(refs_norm, convert_to_tensor=True)
