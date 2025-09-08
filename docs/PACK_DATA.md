@@ -29,3 +29,14 @@ python transcribe/tools/pack_dataset.py \
 - Non-existent source paths are skipped and reported as `missing` in the script summary.
 - You may repeat for validation: `--input data/val.jsonl --out_json data/val_portable.jsonl`.
 - Keep the new folder out of Git if it contains large media (add `data/Train data/` to `.gitignore` if needed).
+
+## Uploading to Runpod
+- Single archive (local):
+  - Linux/macOS: `tar -czf dataset_portable.tgz data/train_portable.jsonl data/val_portable.jsonl "data/Train data"`
+  - Windows: `Compress-Archive -LiteralPath 'data\train_portable.jsonl','data\val_portable.jsonl','data\Train data' -DestinationPath dataset_portable.zip -Force`
+- runpodctl (PowerShell):
+  - `.\runpodctl.exe cp .\dataset_portable.zip "$POD:/workspace/"`
+  - `.\runpodctl.exe exec $POD -- bash -lc "cd /workspace && apt-get update -y && apt-get install -y unzip >/dev/null 2>&1 || true; unzip -q -o dataset_portable.zip -d /workspace"`
+- Or fetch from HF private repo inside pod:
+  - `export HF_TOKEN=hf_xxx`
+  - `python transcribe/tools/fetch_dataset.py --hf_repo <org>/<repo> --hf_file dataset_portable.tgz --dest /workspace/data`

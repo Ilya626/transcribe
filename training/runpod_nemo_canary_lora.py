@@ -33,12 +33,29 @@ import shutil
 import torch
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import Callback, LearningRateMonitor, ModelCheckpoint
+from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 
 try:
     from nemo.collections.asr.models import EncDecMultiTaskModel
 except Exception as e:  # pragma: no cover
     raise SystemExit(f"[ERR] Cannot import NeMo ASR models. Install nemo_toolkit. Underlying error: {e}")
+
+# Fallback custom LoRA injection (uses Windows script utilities)
+# Ensure repo root is on sys.path so that `import transcribe.*` works even when
+# running this script from inside the `transcribe` directory.
+_repo_root = Path(__file__).resolve().parents[2]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
+try:
+    from transcribe.training.finetune_canary import (
+        inject_lora_modules,
+        merge_lora_into_linear,
+    )
+except Exception:
+    inject_lora_modules = None  # type: ignore
+    merge_lora_into_linear = None  # type: ignore
 
 
 class CudaMemReport(Callback):
@@ -79,18 +96,31 @@ class CudaMemReport(Callback):
         self._report("fit_end")
 
 
-def ensure_nemo_adapter_api(model):
-    """Check that NeMo adapter API appears to be available and return utility.
+def nemo_adapter_api_available(model) -> bool:
+    return hasattr(model, "add_adapter")
 
-    We expect methods like `add_adapter` and possibly `set_enabled_adapters` on the model.
-    Some NeMo versions use adapter configs with a Hydra-style dict (`_target_` pointing to LoRA).
-    """
-    if not hasattr(model, "add_adapter"):
-        raise RuntimeError(
-            "This NeMo build does not expose add_adapter on the model.\n"
-            "Upgrade nemo_toolkit to a version with native adapters (LoRA) "
-            "or use the Windows-friendly script finetune_canary.py (custom LoRA)."
-        )
+
+def _flag_present(name: str) -> bool:
+    return any(a == name or a.startswith(name + "=") for a in sys.argv[1:])
+
+
+def apply_preset(args):
+    if not getattr(args, "preset", None):
+        return args
+    preset = args.preset
+    # Presets tuned for A6000 48GB
+    if preset == "a6000-fast":
+        preset_vals = dict(bs=12, accum=1, num_workers=12, lora_r=32, lora_alpha=64, lora_dropout=0.05)
+    elif preset == "a6000-max":
+        preset_vals = dict(bs=16, accum=1, num_workers=12, lora_r=32, lora_alpha=64, lora_dropout=0.05)
+    else:
+        return args
+    # Only set values the user did not override explicitly on CLI
+    for k, v in preset_vals.items():
+        flag = "--" + k.replace("_", "-")
+        if not _flag_present(flag):
+            setattr(args, k, v)
+    return args
 
 
 def main():
@@ -117,7 +147,22 @@ def main():
     ap.add_argument("--log", choices=["csv", "tb", "none"], default="csv")
     ap.add_argument("--resume", default="", help="Optional path to Lightning checkpoint to resume from (ckpt_path)")
     ap.add_argument("--num_workers", type=int, default=8, help="DataLoader workers (Linux: 8; Windows: 0)")
+    ap.add_argument("--preset", choices=["a6000-fast", "a6000-max"], default=None, help="Pre-tuned config profiles")
+    # Generalization & control
+    ap.add_argument("--monitor", default="val_loss", help="Metric name to monitor for best/early stop")
+    ap.add_argument("--early_stop", action="store_true", help="Enable EarlyStopping on --monitor")
+    ap.add_argument("--es_patience", type=int, default=3)
+    ap.add_argument("--es_min_delta", type=float, default=0.003, help="Relative min improvement (~0.3%)")
+    ap.add_argument("--gradient_clip_val", type=float, default=1.0)
+    ap.add_argument("--lr", type=float, default=None, help="Override base learning rate if supported")
+    ap.add_argument("--weight_decay", type=float, default=None, help="Override weight decay if supported")
     args = ap.parse_args()
+
+    # Apply preset-derived values (unless overridden explicitly on CLI)
+    args = apply_preset(args)
+
+    # Safer CUDA allocator by default
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     Path(args.outdir).mkdir(parents=True, exist_ok=True)
     Path(Path(args.export).parent).mkdir(parents=True, exist_ok=True)
@@ -164,8 +209,20 @@ def main():
         map_location="cuda" if torch.cuda.is_available() else "cpu",
     )
 
-    # Ensure adapter API
-    ensure_nemo_adapter_api(model)
+    # Best-effort override of optimizer hyperparams if user requested
+    try:
+        cfg = getattr(model, "cfg", None) or getattr(model, "_cfg", None)
+        if cfg is not None and hasattr(cfg, "optim"):
+            if args.lr is not None and hasattr(cfg.optim, "lr"):
+                old = cfg.optim.lr
+                cfg.optim.lr = args.lr
+                print(f"[OPT] Overriding lr: {old} -> {cfg.optim.lr}")
+            if args.weight_decay is not None and hasattr(cfg.optim, "weight_decay"):
+                old = cfg.optim.weight_decay
+                cfg.optim.weight_decay = args.weight_decay
+                print(f"[OPT] Overriding weight_decay: {old} -> {cfg.optim.weight_decay}")
+    except Exception as e:
+        print(f"[OPT][WARN] Could not override optimizer cfg: {e}")
 
     # Prepare LoRA config (try native class first, fallback to Hydra-style dict)
     lora_cfg = None
@@ -194,53 +251,98 @@ def main():
                 "enabled_modules": ["encoder.*", "transf_decoder.*"],
             }
 
-    print(f"[ADAPTER] Adding LoRA adapter '{args.adapter_name}' with cfg: r={args.lora_r} alpha={args.lora_alpha} dropout={args.lora_dropout}")
-    try:
-        model.add_adapter(name=args.adapter_name, cfg=lora_cfg)
-        # Enable the adapter; method name can differ by version.
-        if hasattr(model, "set_enabled_adapters"):
-            model.set_enabled_adapters([args.adapter_name], enabled=True)
-        elif hasattr(model, "enable_adapters"):
-            model.enable_adapters(adapters=[args.adapter_name])
-        else:
-            print("[WARN] Could not find an explicit enable_adapters API; proceeding (adapter likely active by default)")
-    except Exception as e:
-        raise SystemExit(
-            "[ERR] Failed to add/enable LoRA adapter via NeMo native API.\n"
-            f"Underlying error: {e}\n"
-            "Please ensure nemo_toolkit >= version with native LoRA adapters."
+    used_adapter = False
+    if nemo_adapter_api_available(model):
+        print(
+            f"[ADAPTER] Adding LoRA adapter '{args.adapter_name}' with cfg: r={args.lora_r} alpha={args.lora_alpha} dropout={args.lora_dropout}"
         )
+        try:
+            model.add_adapter(name=args.adapter_name, cfg=lora_cfg)
+            # Enable the adapter; method name can differ by version.
+            if hasattr(model, "set_enabled_adapters"):
+                model.set_enabled_adapters([args.adapter_name], enabled=True)
+            elif hasattr(model, "enable_adapters"):
+                model.enable_adapters(adapters=[args.adapter_name])
+            else:
+                print(
+                    "[WARN] Could not find an explicit enable_adapters API; proceeding (adapter may be active by default)"
+                )
+            # Freeze base weights, train only adapter params if API exposed
+            try:
+                for p in model.parameters():
+                    p.requires_grad = False
+                if hasattr(model, "adapter_parameters"):
+                    for p in model.adapter_parameters():
+                        p.requires_grad = True
+            except Exception:
+                pass
+            used_adapter = True
+        except Exception as e:
+            print(
+                "[WARN] Failed to add/enable LoRA via NeMo adapter API; falling back to custom injection:\n",
+                e,
+            )
 
-    # Freeze base weights if adapter requires it (common practice)
-    try:
+    # Fallback: custom LoRA injection into Linear layers
+    used_fallback_lora = False
+    if not used_adapter:
+        if inject_lora_modules is None:
+            raise SystemExit(
+                "[ERR] NeMo adapter API not available and fallback injector not importable."
+            )
+        print("[FALLBACK] Injecting custom LoRA into Linear layers (no NeMo adapters)")
+        # Freeze base weights; LoRA layers hold trainable params
         for p in model.parameters():
             p.requires_grad = False
-        if hasattr(model, "adapter_parameters"):
-            for p in model.adapter_parameters():
-                p.requires_grad = True
-    except Exception:
-        pass
+        patterns = [
+            r"(self_)?attn\.(q_proj|k_proj|v_proj|out_proj)",
+            r"linear_qkv",
+            r"linear_proj",
+            r"linear_fc1",
+            r"linear_fc2",
+            r"\bfc1\b",
+            r"\bfc2\b",
+            r"linear1",
+            r"linear2",
+            r"\bproj\b",
+            r"to_q\b",
+            r"to_k\b",
+            r"to_v\b",
+            r"to_out\b",
+        ]
+        replaced, used_fb = inject_lora_modules(
+            model,
+            patterns,
+            r=int(args.lora_r),
+            alpha=int(args.lora_alpha),
+            dropout=float(args.lora_dropout),
+            fallback_prefixes=("encoder", "transf_decoder"),
+            debug_print=0,
+        )
+        print(f"[FALLBACK] LoRA injected modules: {replaced} (prefix_fallback={used_fb})")
+        if replaced <= 0:
+            raise SystemExit("[ERR] Fallback LoRA did not attach; adjust patterns")
+        used_fallback_lora = True
 
     # Data config via Lhotse cuts produced on-the-fly by model's setup methods
     train_cfg = {
         "use_lhotse": True,
         "cuts_path": str(Path("data") / "train_cuts.jsonl.gz"),  # will be written if not exists
         "num_workers": int(args.num_workers),  # Linux; Windows can use 0
-        "bucketing_sampler": False,
         "shuffle": True,
         "batch_size": int(args.bs),
         "pretokenize": False,
-        "input_manifest": args.train,
+        "pin_memory": True,
+        # keys below are for non-Lhotse manifest paths and ignored by Lhotse; avoid warnings
     }
     val_cfg = {
         "use_lhotse": True,
         "cuts_path": str(Path("data") / "val_cuts.jsonl.gz"),
         "num_workers": int(args.num_workers),
-        "bucketing_sampler": False,
         "shuffle": False,
         "batch_size": int(args.bs),
         "pretokenize": False,
-        "input_manifest": args.val,
+        "pin_memory": True,
     }
 
     # The model's setup_* functions in our Windows script generate Lhotse cuts from JSONL.
@@ -271,6 +373,7 @@ def main():
     elif args.log == "tb":
         logger = TensorBoardLogger(save_dir=args.outdir, name="tb_logs")
 
+    # Step checkpoints
     ckpt_cb = ModelCheckpoint(
         dirpath=args.outdir,
         filename="step{step:06d}",
@@ -278,8 +381,19 @@ def main():
         save_top_k=-1,
         every_n_train_steps=int(args.save_every),
     )
+    # Best checkpoint by monitored metric
+    best_cb = ModelCheckpoint(
+        dirpath=args.outdir,
+        filename="best",
+        save_top_k=1,
+        monitor=args.monitor,
+        mode="min",
+    )
     mem_cb = CudaMemReport(every_n_steps=int(args.mem_report_steps))
-    callbacks = [ckpt_cb, mem_cb]
+    callbacks = [ckpt_cb, best_cb, mem_cb]
+    if args.early_stop:
+        es = EarlyStopping(monitor=args.monitor, mode="min", patience=int(args.es_patience), min_delta=float(args.es_min_delta))
+        callbacks.append(es)
     if logger is not None:
         callbacks.append(LearningRateMonitor(logging_interval="step"))
 
@@ -289,6 +403,7 @@ def main():
         max_steps=int(args.max_steps),
         accumulate_grad_batches=int(args.accum),
         precision=args.precision,
+        gradient_clip_val=float(args.gradient_clip_val),
         logger=logger,
         enable_checkpointing=True,
         callbacks=callbacks,
@@ -296,12 +411,19 @@ def main():
         log_every_n_steps=10,
     )
 
-    print("[TRAIN] Starting fit() with native NeMo adapter (LoRA)")
+    print(
+        "[TRAIN] Starting fit() with LoRA (mode="
+        + ("adapter" if used_adapter else "fallback")
+        + f") | bs={args.bs} accum={args.accum} workers={args.num_workers} precision={args.precision}"
+    )
     ckpt_path = args.resume if args.resume else None
     trainer.fit(model, ckpt_path=ckpt_path)
 
-    print("[EXPORT] Saving merged adapter model to .nemo")
+    print("[EXPORT] Saving model to .nemo")
     try:
+        if not used_adapter and merge_lora_into_linear is not None:
+            print("[EXPORT] Merging fallback LoRA weights into base Linear layers ...")
+            merge_lora_into_linear(model)
         model.save_to(str(args.export))
     except Exception as e:
         print("[ERR] Export failed:", e)
