@@ -71,6 +71,24 @@ def cosine_sims_for_pairs(
         return [None for _ in pairs]
 
 
+def bert_score_for_pairs(
+    pairs: List[Tuple[str, str]],
+    model_type: str = "bert-base-multilingual-cased",
+    device: str = "cpu",
+    batch_size: int = 64,
+    lang: str = "en",
+) -> List[Optional[float]]:
+    try:
+        from bert_score import score as bert_score
+
+        refs = [a for a, _ in pairs]
+        hyps = [b for _, b in pairs]
+        _, _, f1 = bert_score(hyps, refs, model_type=model_type, device=device, batch_size=batch_size, lang=lang)
+        return [float(v) for v in f1.tolist()]
+    except Exception:
+        return [None for _ in pairs]
+
+
 def release_semantic_models(_cache: dict = {}):
     try:
         keys = list(_cache.keys())

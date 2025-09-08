@@ -26,9 +26,10 @@ def write_json(path: Path, obj):
 def aggregate_model_metrics(rows: List[Dict]) -> List[Dict]:
     agg = defaultdict(lambda: defaultdict(float))
     cnt = defaultdict(int)
+    metric_keys = ("wer", "cer", "ser", "sim", "bert_score")
     for r in rows:
         mid = r["model_id"]
-        for k in ("wer", "cer", "ser", "sim"):
+        for k in metric_keys:
             v = r.get(k)
             if v is not None:
                 agg[mid][k] += float(v)
@@ -36,14 +37,10 @@ def aggregate_model_metrics(rows: List[Dict]) -> List[Dict]:
     out = []
     for mid, sums in agg.items():
         n = max(1, cnt[mid])
-        out.append({
-            "model_id": mid,
-            "wer": sums.get("wer", 0.0) / n,
-            "cer": sums.get("cer", 0.0) / n,
-            "ser": sums.get("ser", 0.0) / n,
-            "sim": sums.get("sim", 0.0) / n,
-            "count": n,
-        })
+        row = {"model_id": mid, "count": n}
+        for k in metric_keys:
+            row[k] = sums.get(k, 0.0) / n
+        out.append(row)
     out.sort(key=lambda x: x.get("wer", 0.0))
     return out
 

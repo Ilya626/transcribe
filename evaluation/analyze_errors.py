@@ -14,7 +14,11 @@ from transcribe.evaluation.advanced.align import (
 )
 from transcribe.evaluation.advanced.taxonomy import categorize_ops, classify_utterance
 from transcribe.evaluation.advanced.ner import extract_entities
-from transcribe.evaluation.advanced.semantics import cosine_similarity, cosine_sims_for_pairs
+from transcribe.evaluation.advanced.semantics import (
+    cosine_similarity,
+    cosine_sims_for_pairs,
+    bert_score_for_pairs,
+)
 from transcribe.evaluation.advanced.report import (
     aggregate_model_metrics,
     top_confusions,
@@ -78,6 +82,11 @@ def main():
     ap.add_argument("--st_bs", type=int, default=256, help="Batch size for sentence-transformers encoding")
     ap.add_argument("--sample", type=int, default=0, help="Sample N utterances (intersection across preds)")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--bert_score", action="store_true", help="Compute BERTScore F1")
+    ap.add_argument("--bert_model", default="bert-base-multilingual-cased")
+    ap.add_argument("--bert_device", default="cpu", choices=["cpu", "cuda"])
+    ap.add_argument("--bert_bs", type=int, default=64)
+    ap.add_argument("--bert_lang", default="en")
     args = ap.parse_args()
 
     outdir = args.outdir
@@ -131,6 +140,7 @@ def main():
                 "cer": round(metrics["cer"], 6),
                 "ser": round(metrics["ser"], 6),
                 "sim": None,
+                "bert_score": None,
                 "class": None,
                 "ops_sub": cats.get("sub", 0),
                 "ops_ins": cats.get("ins", 0),
@@ -154,6 +164,21 @@ def main():
         sims = cosine_sims_for_pairs(pairs, model_name=args.st_model, device=args.st_device, batch_size=args.st_bs)
         for r, s in zip(per_row, sims):
             r["sim"] = None if s is None else round(float(s), 6)
+
+    if args.bert_score and per_row:
+        pairs = [(r["ref_norm"], r["hyp_norm"]) for r in per_row]
+        print(
+            f"[BERT] Computing BERTScore for {len(pairs)} pairs on {args.bert_device} ..."
+        )
+        f1 = bert_score_for_pairs(
+            pairs,
+            model_type=args.bert_model,
+            device=args.bert_device,
+            batch_size=args.bert_bs,
+            lang=args.bert_lang,
+        )
+        for r, s in zip(per_row, f1):
+            r["bert_score"] = None if s is None else round(float(s), 6)
 
     # Third pass: classify now that sim is known
     for r in per_row:
@@ -226,6 +251,35 @@ def main():
         "top_confusions": conf[:20],
         "disagreement_file": str((outdir / "disagreement.csv").as_posix()),
     })
+
+    # Heatmap of overlapping errors between models
+    try:
+        import numpy as np
+        import matplotlib.pyplot as plt
+
+        mids = [mid for mid, _ in pred_specs]
+        err_sets: Dict[str, set] = {mid: set() for mid in mids}
+        for r in per_row:
+            if float(r.get("wer", 0.0)) > 0.0:
+                err_sets[r["model_id"]].add(r["utt_id"])
+        n = len(mids)
+        mat = np.zeros((n, n), dtype=int)
+        for i, m1 in enumerate(mids):
+            for j, m2 in enumerate(mids):
+                mat[i, j] = len(err_sets[m1] & err_sets[m2])
+        fig, ax = plt.subplots(figsize=(2 + n, 2 + n))
+        im = ax.imshow(mat, cmap="Reds")
+        ax.set_xticks(range(n), labels=mids, rotation=45, ha="right")
+        ax.set_yticks(range(n), labels=mids)
+        for i in range(n):
+            for j in range(n):
+                ax.text(j, i, str(mat[i, j]), ha="center", va="center", color="black")
+        fig.colorbar(im, ax=ax)
+        fig.tight_layout()
+        plt.savefig(outdir / "error_overlap_heatmap.png")
+        plt.close(fig)
+    except Exception as e:
+        print(f"[WARN] Failed to create heatmap: {e}")
 
     # release semantic model explicitly (if loaded)
     try:
