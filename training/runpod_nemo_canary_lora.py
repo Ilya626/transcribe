@@ -115,6 +115,8 @@ def main():
     ap.add_argument("--max_steps", type=int, default=3000)
     ap.add_argument("--mem_report_steps", type=int, default=50)
     ap.add_argument("--log", choices=["csv", "tb", "none"], default="csv")
+    ap.add_argument("--resume", default="", help="Optional path to Lightning checkpoint to resume from (ckpt_path)")
+    ap.add_argument("--num_workers", type=int, default=8, help="DataLoader workers (Linux: 8; Windows: 0)")
     args = ap.parse_args()
 
     Path(args.outdir).mkdir(parents=True, exist_ok=True)
@@ -165,21 +167,32 @@ def main():
     # Ensure adapter API
     ensure_nemo_adapter_api(model)
 
-    # Build a Hydra-style adapter config for NeMo LoRA
-    # Reference target path may vary by NeMo version; common location:
-    #   nemo.core.adapters.lora.LoRAConfig or nemo.core.adapters.LoRAConfig
-    # We pass a dict to avoid tight coupling with specific class imports.
-    lora_cfg = {
-        "_target_": "nemo.core.adapters.LoRAConfig",
-        "r": int(args.lora_r),
-        "alpha": int(args.lora_alpha),
-        "dropout": float(args.lora_dropout),
-        # Apply to common linear/attention projections (best-effort; NeMo resolves internally)
-        "enabled_modules": [
-            "encoder.*",
-            "transf_decoder.*",
-        ],
-    }
+    # Prepare LoRA config (try native class first, fallback to Hydra-style dict)
+    lora_cfg = None
+    try:
+        # Newer NeMo
+        from nemo.core.adapters.lora import LoRAConfig as _LoRAConfig  # type: ignore
+        lora_cfg = _LoRAConfig(
+            r=int(args.lora_r), alpha=int(args.lora_alpha), dropout=float(args.lora_dropout),
+            enabled_modules=["encoder.*", "transf_decoder.*"],
+        )
+    except Exception:
+        try:
+            # Older NeMo
+            from nemo.core.adapters import LoRAConfig as _LoRAConfig  # type: ignore
+            lora_cfg = _LoRAConfig(
+                r=int(args.lora_r), alpha=int(args.lora_alpha), dropout=float(args.lora_dropout),
+                enabled_modules=["encoder.*", "transf_decoder.*"],
+            )
+        except Exception:
+            # Last resort: Hydra dict (works if add_adapter hydrates cfg)
+            lora_cfg = {
+                "_target_": "nemo.core.adapters.lora.LoRAConfig",
+                "r": int(args.lora_r),
+                "alpha": int(args.lora_alpha),
+                "dropout": float(args.lora_dropout),
+                "enabled_modules": ["encoder.*", "transf_decoder.*"],
+            }
 
     print(f"[ADAPTER] Adding LoRA adapter '{args.adapter_name}' with cfg: r={args.lora_r} alpha={args.lora_alpha} dropout={args.lora_dropout}")
     try:
@@ -212,7 +225,7 @@ def main():
     train_cfg = {
         "use_lhotse": True,
         "cuts_path": str(Path("data") / "train_cuts.jsonl.gz"),  # will be written if not exists
-        "num_workers": 8,  # Linux; Windows can use 0
+        "num_workers": int(args.num_workers),  # Linux; Windows can use 0
         "bucketing_sampler": False,
         "shuffle": True,
         "batch_size": int(args.bs),
@@ -222,7 +235,7 @@ def main():
     val_cfg = {
         "use_lhotse": True,
         "cuts_path": str(Path("data") / "val_cuts.jsonl.gz"),
-        "num_workers": 8,
+        "num_workers": int(args.num_workers),
         "bucketing_sampler": False,
         "shuffle": False,
         "batch_size": int(args.bs),
@@ -284,7 +297,8 @@ def main():
     )
 
     print("[TRAIN] Starting fit() with native NeMo adapter (LoRA)")
-    trainer.fit(model)
+    ckpt_path = args.resume if args.resume else None
+    trainer.fit(model, ckpt_path=ckpt_path)
 
     print("[EXPORT] Saving merged adapter model to .nemo")
     try:

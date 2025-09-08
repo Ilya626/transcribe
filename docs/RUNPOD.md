@@ -8,7 +8,7 @@ Recommended base image: Runpod Pytorch 2.4.0
   - Более консервативно и совместимо с NeMo, чем 2.8.0; свежее и удобнее, чем 2.2.0
 
 ## Bootstrap
-1) В контейнере перейти к репо и выполнить:
+1) В контейнере перейти к репо и выполнить (вариант A — NeMo из PyPI):
 ```
 bash transcribe/training/runpod_setup.sh
 ```
@@ -19,6 +19,13 @@ bash transcribe/training/runpod_setup.sh
 ```
 source transcribe/env.sh
 ```
+
+Вариант B — NeMo из Git main:
+```
+bash transcribe/training/runpod_setup_nemo_main.sh
+source transcribe/env.sh
+```
+Рекомендовано, если нужны последние улучшения NeMo и нативного LoRA.
 
 ## Native NeMo LoRA (Canary)
 Запуск дообучения с нативным адаптером NeMo (LoRA) на A6000 48 GB:
