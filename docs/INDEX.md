@@ -10,3 +10,4 @@ Use this as a hub to the focused guides:
 - Fine-tuning: `transcribe/docs/FINETUNE.md`
 - Troubleshooting (Windows/GPU/FFmpeg/HF caches): `transcribe/docs/TROUBLESHOOTING.md`
 - Whisper Variants (adding & running): `transcribe/docs/WHISPER_VARIANTS.md`
+- Packing Dataset (portable paths): `transcribe/docs/PACK_DATA.md`

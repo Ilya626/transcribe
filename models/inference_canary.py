@@ -199,7 +199,10 @@ def main() -> None:
                     obj = json.loads(line)
                     p = obj.get("audio_filepath") or obj.get("audio")
                     if p:
-                        audio_files.append(Path(p))
+                        pp = Path(p)
+                        if not pp.is_absolute():
+                            pp = (input_path.parent / pp).resolve()
+                        audio_files.append(pp)
         else:
             with open(input_path, "r", encoding="utf-8") as f:
                 obj = json.load(f)
@@ -210,7 +213,10 @@ def main() -> None:
                     if isinstance(it, dict):
                         p = it.get("audio_filepath") or it.get("audio")
                         if p:
-                            audio_files.append(Path(p))
+                            pp = Path(p)
+                            if not pp.is_absolute():
+                                pp = (input_path.parent / pp).resolve()
+                            audio_files.append(pp)
     else:
         audio_files = [input_path] if input_path.is_file() else sorted(
             p for p in input_path.glob("**/*") if p.suffix.lower() in {".wav", ".flac", ".mp3"}

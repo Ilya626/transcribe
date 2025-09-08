@@ -127,10 +127,15 @@ def build_cuts_from_jsonl(jsonl_path: str):
     recs = []
     sups = []
     n = 0
+    base_dir = Path(jsonl_path).resolve().parent
     with open(jsonl_path, "r", encoding="utf-8") as f:
         for i, line in enumerate(f, 1):
             o = json.loads(line)
-            wav = o["audio_filepath"]
+            wav_raw = o["audio_filepath"]
+            wav_path = Path(str(wav_raw))
+            if not wav_path.is_absolute():
+                wav_path = (base_dir / wav_path).resolve()
+            wav = str(wav_path)
             txt = o.get("text", "")
             src = o.get("source_lang", "ru")
             tgt = o.get("target_lang", "ru")
