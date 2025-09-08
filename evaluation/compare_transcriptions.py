@@ -5,6 +5,7 @@ semantic similarity for each predictions file.
 """
 import argparse
 import json
+import os
 import string
 from pathlib import Path
 
@@ -18,9 +19,34 @@ def normalize(text: str) -> str:
     return text.translate(str.maketrans("", "", string.punctuation))
 
 
-def load_json(path: Path) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def load_json_or_jsonl(path: Path) -> dict:
+    """Load mapping path->text from JSON or JSONL with audio_filepath/text."""
+    if path.suffix.lower() == ".jsonl":
+        refs: dict[str, str] = {}
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                obj = json.loads(line)
+                k = obj.get("audio_filepath") or obj.get("audio")
+                v = obj.get("text", "")
+                if k is not None:
+                    refs[str(k)] = v
+        return refs
+    else:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            refs: dict[str, str] = {}
+            for obj in data:
+                if isinstance(obj, dict):
+                    k = obj.get("audio_filepath") or obj.get("audio")
+                    v = obj.get("text", "")
+                    if k is not None:
+                        refs[str(k)] = v
+            if refs:
+                return refs
+        return data
 
 
 def evaluate(
@@ -64,11 +90,30 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    refs = load_json(Path(args.references))
+    _ensure_local_caches()
+    refs = load_json_or_jsonl(Path(args.references))
+def _ensure_local_caches():
+    """Ensure HF/Torch caches live under the repo directory."""
+    try:
+        repo_root = Path(__file__).resolve().parents[1]
+        hf = os.environ.get("HF_HOME") or str(repo_root / ".hf")
+        os.environ.setdefault("HF_HOME", hf)
+        os.environ.setdefault("TRANSFORMERS_CACHE", hf)
+        os.environ.setdefault("HF_HUB_CACHE", str(Path(hf) / "hub"))
+        os.environ.setdefault("TORCH_HOME", str(repo_root / ".torch"))
+        tmp = str(repo_root / ".tmp")
+        os.environ.setdefault("TMP", tmp)
+        os.environ.setdefault("TEMP", tmp)
+        for d in [hf, os.environ["HF_HUB_CACHE"], os.environ["TORCH_HOME"], tmp]:
+            Path(d).mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
     st_model = SentenceTransformer(args.model)
 
     for pred_path in args.predictions:
-        preds = load_json(Path(pred_path))
+        with open(Path(pred_path), "r", encoding="utf-8") as f:
+            preds = json.load(f)
         (
             wer_score,
             cer_score,

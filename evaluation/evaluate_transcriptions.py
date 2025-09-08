@@ -6,6 +6,7 @@ computes semantic similarity via Sentence-Transformers.
 """
 import argparse
 import json
+import os
 import string
 from pathlib import Path
 
@@ -21,9 +22,63 @@ def normalize(text: str) -> str:
     return text.translate(str.maketrans("", "", string.punctuation))
 
 
-def load_json(path: Path) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def _ensure_local_caches():
+    """Route HF/Torch caches to project-local folders if not already set.
+
+    This ensures model downloads land under the repository directory and
+    avoid user profile disks. Safe to call multiple times.
+    """
+    try:
+        repo_root = Path(__file__).resolve().parents[1]
+        hf = os.environ.get("HF_HOME") or str(repo_root / ".hf")
+        os.environ.setdefault("HF_HOME", hf)
+        os.environ.setdefault("TRANSFORMERS_CACHE", hf)
+        os.environ.setdefault("HF_HUB_CACHE", str(Path(hf) / "hub"))
+        os.environ.setdefault("TORCH_HOME", str(repo_root / ".torch"))
+        tmp = str(repo_root / ".tmp")
+        os.environ.setdefault("TMP", tmp)
+        os.environ.setdefault("TEMP", tmp)
+        # create directories best-effort
+        for d in [hf, os.environ["HF_HUB_CACHE"], os.environ["TORCH_HOME"], tmp]:
+            Path(d).mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+
+def load_json_or_jsonl(path: Path) -> dict:
+    """Load references as a mapping path->text from JSON or JSONL.
+
+    - JSON: expects {"path": "text", ...}
+    - JSONL: expects objects with keys {"audio_filepath", "text"}
+    """
+    if path.suffix.lower() == ".jsonl":
+        refs: dict[str, str] = {}
+        # support UTF-8 with BOM
+        with open(path, "r", encoding="utf-8-sig") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                obj = json.loads(line)
+                k = obj.get("audio_filepath") or obj.get("audio")
+                v = obj.get("text", "")
+                if k is not None:
+                    refs[str(k)] = v
+        return refs
+    else:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # if it's a list of objects from a JSON (not JSONL), map it too
+        if isinstance(data, list):
+            refs: dict[str, str] = {}
+            for obj in data:
+                if isinstance(obj, dict):
+                    k = obj.get("audio_filepath") or obj.get("audio")
+                    v = obj.get("text", "")
+                    if k is not None:
+                        refs[str(k)] = v
+            if refs:
+                return refs
+        return data
 
 
 def main() -> None:
@@ -35,8 +90,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    refs = load_json(Path(args.references))
-    preds = load_json(Path(args.predictions))
+    _ensure_local_caches()
+    refs = load_json_or_jsonl(Path(args.references))
+    with open(Path(args.predictions), "r", encoding="utf-8") as f:
+        preds = json.load(f)
 
     refs_norm = []
     preds_norm = []

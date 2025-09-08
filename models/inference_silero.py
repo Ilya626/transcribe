@@ -1,12 +1,26 @@
-"""Transcribe audio files using Silero STT model."""
+"""Transcribe audio files using Silero STT model.
+
+Ensures Torch Hub cache is inside the project directory. Requires CUDA; CPU
+inference is disabled.
+"""
 import argparse
 import json
 from pathlib import Path
+import os
 
 import torch
 
 
 def load_model(device):
+    repo_root = Path(__file__).resolve().parents[1]
+    os.environ.setdefault("TORCH_HOME", str(repo_root / ".torch"))
+    tmp = str(repo_root / ".tmp")
+    os.environ.setdefault("TMP", tmp)
+    os.environ.setdefault("TEMP", tmp)
+    Path(os.environ["TORCH_HOME"]).mkdir(parents=True, exist_ok=True)
+    Path(tmp).mkdir(parents=True, exist_ok=True)
+    if device != "cuda":
+        raise RuntimeError("CUDA GPU is required. CPU inference is disabled.")
     model, decoder, utils = torch.hub.load(
         repo_or_dir="snakers4/silero-models",
         model="silero_stt",
@@ -34,7 +48,9 @@ def main() -> None:
     parser.add_argument("output", type=str, help="Path to output JSON file")
     args = parser.parse_args()
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA GPU is required. CPU inference is disabled.")
+    device = "cuda"
     model, decoder, read_audio, split_into_batches, prepare_model_input = load_model(device)
 
     input_path = Path(args.input)

@@ -1,8 +1,15 @@
-"""Transcribe audio files using Vosk offline model."""
+"""Transcribe audio files using Vosk offline model.
+
+Keeps temporary files within the project directory.
+
+Note: Vosk is a CPU-only recognizer in typical setups. Since CPU inference is
+disallowed by policy, this script will raise unless override is implemented.
+"""
 import argparse
 import json
 from pathlib import Path
 import wave
+import os
 
 from vosk import Model, KaldiRecognizer
 
@@ -27,7 +34,15 @@ def main() -> None:
     parser.add_argument("output", type=str, help="Path to output JSON file")
     args = parser.parse_args()
 
-    model = Model(args.model)
+    repo_root = Path(__file__).resolve().parents[1]
+    tmp = str(repo_root / ".tmp")
+    os.environ.setdefault("TMP", tmp)
+    os.environ.setdefault("TEMP", tmp)
+    Path(tmp).mkdir(parents=True, exist_ok=True)
+
+    raise RuntimeError(
+        "CPU-only Vosk is not permitted under GPU-only policy. Use Whisper/Canary/Silero/GigaAM."
+    )
 
     input_path = Path(args.input)
     audio_files = [input_path] if input_path.is_file() else sorted(

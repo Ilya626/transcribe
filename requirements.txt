@@ -13,3 +13,5 @@ nemo_toolkit
 lhotse
 # GigaAM requires extra installation
 # pip install git+https://github.com/salute-developers/GigaAM
+# Optional for advanced evaluation
+# natasha
