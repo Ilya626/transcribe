@@ -54,6 +54,15 @@ python transcribe/tools/build_manifest_hf.py --preset ruls --out data/ruls.jsonl
 python transcribe/tools/build_manifest_hf.py --preset golos-crowd --out data/golos_crowd.jsonl --drop_empty
 python transcribe/tools/build_manifest_hf.py --preset golos-farfield --out data/golos_farfield.jsonl --drop_empty
 
+# Podlodka Speech (Russian podcasts)
+python transcribe/tools/build_manifest_hf.py --preset podlodka --out data/podlodka.jsonl --drop_empty
+
+# Telephony (UniDataPro; may require auth)
+python transcribe/tools/build_manifest_hf.py \
+  --dataset UniDataPro/russian-speech-recognition-dataset \
+  --split train+validation+test --audio_col audio --text_col transcript \
+  --out data/telephony.jsonl --drop_empty
+
 # Optional non-speech (for anti-hallucination; emits empty text and nospeech=true)
 python transcribe/tools/build_manifest_hf.py --preset audioset-nonspeech --out data/nonspeech.jsonl
 
@@ -71,6 +80,51 @@ python transcribe/tools/mix_manifests.py \
   --ratios cv=0.35,mls=0.2,fleurs=0.05,ruls=0.15,golos_c=0.15,golos_f=0.1 \
   --shuffle --seed 42 --add_dataset_tag
 ```
+
+Here `golos_mix.jsonl` is Golos crowd+farfield concatenated.
+
+### Canary quality filter
+Run Canary on a manifest and keep only high‑quality rows (WER ≤ 0.15 by default):
+
+```bash
+python transcribe/tools/filter_manifest_canary.py \
+  --manifest data/cv17_ru.jsonl --out data/cv17_ru_sel.jsonl \
+  --max_wer 0.15 --min_dur 1 --max_dur 35 --batch_size 64
+```
+
+Repeat for each dataset before mixing.
+
+### Stage-1 RU mix (methodology ratios)
+After generating the individual manifests above, combine them using the methodology default ratios:
+
+```bash
+python transcribe/tools/build_ru_stage1_mix.py \
+  --golos data/golos_mix.jsonl --cv data/cv17_ru.jsonl \
+  --ruls data/ruls.jsonl --podlodka data/podlodka.jsonl \
+  --telephony data/telephony.jsonl --nonspeech data/nonspeech.jsonl \
+  --out data/ru_stage1_mix.jsonl --target_size 1000000 \
+  --shuffle --seed 42 --add_dataset_tag
+```
+
+The script uses Golos 35%, Common Voice 25%, RuLibriSpeech 15%, Podlodka 10%, Telephony 10% and non-speech 5%.
+Use `--ratios` to override.
+
+### Stage-1 pipeline helper
+Fetch HF datasets, convert them to manifests, filter with Canary and build the Stage‑1 mix in one go:
+
+```bash
+python transcribe/tools/build_ru_stage1_pipeline.py \
+  --telephony data/telephony.jsonl --out_dir data \
+  --target_size 1000000 --include_nonspeech --seed 42 --batch_size 64
+```
+
+The helper downloads Common Voice, Russian LibriSpeech, Podlodka and both GOLOS
+splits, runs `filter_manifest_canary` on each plus your telephony manifest,
+concatenates GOLOS crowd+farfield and finally produces `ru_stage1_mix.jsonl`.
+Provide the telephony manifest manually.
+
+For NVIDIA A6000 GPUs (48 GB VRAM) Canary runs reliably with batches of around
+64 samples and can sometimes handle 128. Adjust `--batch_size` accordingly.
 
 Tips
 - If a preset fails (HF ID changed), specify `--dataset/--config/--split/--audio_col/--text_col` explicitly.

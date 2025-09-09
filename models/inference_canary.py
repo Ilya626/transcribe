@@ -126,8 +126,17 @@ def main() -> None:
     parser.add_argument("--model_id", default=MODEL_ID, help="HF model id to use")
 
     def _default_bs(mid: str) -> int:
-        m = (mid or '').lower()
-        if 'canary' in m:
+        m = (mid or "").lower()
+        if "canary" in m:
+            try:
+                total_mem = torch.cuda.get_device_properties(0).total_memory
+            except Exception:
+                total_mem = 0
+            gb = 1024 ** 3
+            if total_mem >= 80 * gb:
+                return 128
+            if total_mem >= 40 * gb:
+                return 64
             return 32
         return 16
 
