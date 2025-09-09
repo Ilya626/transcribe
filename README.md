@@ -2,6 +2,23 @@
 
 This repository contains scripts to run speech recognition inference with several open-source models and to evaluate their quality.
 
+## Documentation
+
+For focused guides, see the documentation in `docs/`:
+
+- [Setup & Environment](docs/ENV.md)
+- [Datasets & Manifests](docs/DATA.md)
+- [Packing Dataset (portable paths)](docs/PACK_DATA.md)
+- [Inference Runbook](docs/RUNBOOK.md)
+- [Models Reference](docs/MODELS.md)
+- [Evaluation & Analysis](docs/EVAL.md)
+- [Fine-tuning](docs/FINETUNE.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Whisper Variants](docs/WHISPER_VARIANTS.md)
+- [Runpod Setup & Launch](docs/RUNPOD.md)
+
+An index linking these guides is available at [docs/INDEX.md](docs/INDEX.md).
+
 ## Inference
 
 Each model has its own script under `models/`:
