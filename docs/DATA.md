@@ -1,4 +1,7 @@
 # Datasets & Manifests
+[← Back to Documentation Index](README.md)
+
+See [Setup & Environment](ENV.md) for configuring caches.
 
 ## Reference formats
 - JSONL: one object per line with required fields:
@@ -10,6 +13,13 @@
 ## Example
 ```
 {"audio_filepath": ".../segments/seg_0001.wav", "text": "..."}
+```
+
+## Convert JSONL to JSON references (PowerShell)
+```
+$in = 'data/train.jsonl'; $out = 'data/train_refs.json'
+$m = @{}; Get-Content $in | ForEach-Object { $o = $_ | ConvertFrom-Json; $m[$o.audio_filepath] = $o.text }
+$m | ConvertTo-Json -Depth 1 | Set-Content -Encoding UTF8 $out
 ```
 
 ## Paths
@@ -69,9 +79,7 @@ Tips
 
 ## Convert local HF cache to manifest
 
-If a dataset has already been downloaded to a Hugging Face cache
-(`.hf/datasets/.../<hash>`), turn it into `train/validation/test` JSONL
-manifests with:
+If a dataset has already been downloaded to a Hugging Face cache (`.hf/datasets/.../<hash>`), turn it into `train/validation/test` JSONL manifests with:
 
 ```bash
 python transcribe/tools/hf_cache_to_manifest.py \
@@ -79,6 +87,6 @@ python transcribe/tools/hf_cache_to_manifest.py \
   --out_dir data/rulibrispeech
 ```
 
-The tool descends into split subdirectories and merges multiple `.arrow`
-shards per split. Audio/text column names are auto‑detected but can be
-overridden via `--audio_col`/`--text_col`.
+The tool descends into split subdirectories and merges multiple `.arrow` shards per split. Audio/text column names are auto‑detected but can be overridden via `--audio_col`/`--text_col`.
+
+Next: [Inference Runbook](RUNBOOK.md)

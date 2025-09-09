@@ -1,8 +1,15 @@
 # Inference Runbook
+[← Back to Documentation Index](README.md)
 
-## 0. Activate env (PowerShell)
-- `. transcribe/env.ps1`
-- `.\\transcribe\\.venv\\Scripts\\Activate.ps1`
+Prerequisites: [Setup & Environment](ENV.md), [Datasets & Manifests](DATA.md)
+
+## 0. Activate env
+- PowerShell:
+  - `. transcribe/env.ps1`
+  - `.\\transcribe\\.venv\\Scripts\\Activate.ps1`
+- Bash (Linux/Runpod):
+  - `source transcribe/env.sh`
+  - `source transcribe/.venv/bin/activate`
 
 ## 1. Whisper
 - Large v3: `python transcribe/models/inference_whisper.py data/train.jsonl transcribe/preds/whisper_large_v3_train_beam2_bs8.json --model_id openai/whisper-large-v3 --language ru --task transcribe --num_beams 2 --batch_size 8`
@@ -50,3 +57,5 @@ python transcribe/training/runpod_nemo_canary_partial.py \
   --unfreeze_encoder_last 4 --unfreeze_decoder_last 2 --unfreeze_head \
   --preset a6000-fast --early_stop --es_patience 4 --es_min_delta 0.003
 ```
+
+Next: [Evaluation & Analysis](EVAL.md)
