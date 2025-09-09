@@ -16,7 +16,12 @@
 - [Models Reference](MODELS.md)
 - [GigaAM Guide](GIGAAM.md)
 - [Whisper Variants](WHISPER_VARIANTS.md)
+
+## Training
 - [Fine-tuning](FINETUNE.md)
+- [Runpod: Canary LoRA Quick Start](../training/RUNPOD_CANARY_NEMO.md)
+- [Task Checklist](../training/finetune_canary_TASKS.md)
+- [Methodology (RU)](../training/METHODOLOGY_RU.md)
 
 ## Evaluation
 - [Evaluation & Analysis](EVAL.md)

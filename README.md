@@ -1,18 +1,21 @@
 # Speech Model Inference and Evaluation
 
-Scripts to run speech recognition inference with several open-source models and to evaluate their quality.
+Tools for running speech recognition inference, fine-tuning models and evaluating their quality.
+
+## Repository Structure
+- `docs/` – setup, data, inference, training and evaluation guides
+- `training/` – scripts and notes for model fine‑tuning
+- `evaluation/` – utilities for scoring and analysis
+- `models/` – downloaded or fine‑tuned checkpoints
+- `tools/` – helper scripts (dataset packing, fetching, etc.)
 
 ## Quick Start
 See [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) for a step-by-step workflow.
 
 ## Documentation
-The full documentation lives under [docs/](docs/README.md):
+The full documentation lives under [docs/](docs/README.md).
 
-- [Setup & Environment](docs/ENV.md)
-- [Datasets & Manifests](docs/DATA.md)
-- [Inference Runbook](docs/RUNBOOK.md)
-- [Models Reference](docs/MODELS.md)
-- [GigaAM Guide](docs/GIGAAM.md)
-- [Evaluation & Analysis](docs/EVAL.md)
-- [Fine-tuning](docs/FINETUNE.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
+## Training Resources
+- [Runpod: Canary LoRA Quick Start](training/RUNPOD_CANARY_NEMO.md)
+- [Task Checklist](training/finetune_canary_TASKS.md)
+- [Fine-tuning Methodology (RU)](training/METHODOLOGY_RU.md)
