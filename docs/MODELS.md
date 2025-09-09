@@ -18,6 +18,7 @@
 - Install: `pip install git+https://github.com/salute-developers/GigaAM`
 - Model selector: `--model v2_rnnt|v2_ctc|...`
 - Can run parallel shards: `--parallel N` (merges outputs)
+- [Detailed guide](GIGAAM.md)
 
 ## Silero / Vosk
 - Silero: `transcribe/models/inference_silero.py`
