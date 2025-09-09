@@ -66,3 +66,19 @@ Tips
 - If a preset fails (HF ID changed), specify `--dataset/--config/--split/--audio_col/--text_col` explicitly.
 - All emitted rows include `source_lang/target_lang/pnc` (defaults ru/ru/yes) so they plug into the NeMo training scripts.
 - For non-speech, integrate conservatively (e.g., 2–5%) and monitor stability; consider keeping it in a separate manifest until validated.
+
+## Convert local HF cache to manifest
+
+If a dataset has already been downloaded to a Hugging Face cache
+(`.hf/datasets/.../<hash>`), turn it into `train/validation/test` JSONL
+manifests with:
+
+```bash
+python transcribe/tools/hf_cache_to_manifest.py \
+  --dataset_dir .hf/datasets/bond005___rulibrispeech/default/0.0.0/<hash> \
+  --out_dir data/rulibrispeech
+```
+
+The tool descends into split subdirectories and merges multiple `.arrow`
+shards per split. Audio/text column names are auto‑detected but can be
+overridden via `--audio_col`/`--text_col`.
