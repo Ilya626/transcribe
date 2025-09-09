@@ -1,3 +1,4 @@
+"""
 python transcribe/training/runpod_nemo_canary_lora.py
 --auto_download --model_id nvidia/canary-1b-v2
 --nemo /workspace/models/canary-1b-v2.nemo
@@ -6,8 +7,9 @@ python transcribe/training/runpod_nemo_canary_lora.py
 --outdir /workspace/exp/canary_ru_lora_a6000
 --export /workspace/models/canary-ru-lora-a6000.nemo
 --bs 8 --accum 1 --precision bf16 --num_workers 8
---lora_r 16 --lora_alpha 32 --lora_dropout 0.05#!/usr/bin/env python
-"""
+--lora_r 16 --lora_alpha 32 --lora_dropout 0.05
+#!/usr/bin/env python
+
 Fetch a dataset archive into /workspace (or current repo) and extract it.
 
 Supports two simple sources:
