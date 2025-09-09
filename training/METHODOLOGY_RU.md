@@ -1,3 +1,9 @@
+# Methodology for Fine-Tuning canary-1b-v2 (RU)
+
+> **Note:** The detailed guidance below is written in Russian. It outlines a ~1200 h dataset mix, a two-stage training recipe (partial unfreezing followed by LoRA adapters), data preparation/augmentation tips, optimization settings and evaluation targets. Contributions with a full English translation are welcome.
+
+---
+
 # Методология дообучения canary-1b-v2 под RU (обновлено по последним публикациям, с проверенными ссылками)
 
 Этот документ — готовая секция для training/Методология.md. Включает уточнённый состав датасетов с HF, пропорции смешивания, частичную разморозку (Stage 1, ~1200 ч), LoRA-адаптацию (Stage 2, 22 ч домен + 6 ч голоса), а также практики отбора данных и валидации. Все рекомендации проверены на актуальных источниках (HF/NeMo/Riva, 2024–2025).
