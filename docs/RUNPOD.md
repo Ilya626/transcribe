@@ -10,13 +10,12 @@ Recommended base image
 bash transcribe/training/runpod_setup.sh
 source transcribe/env.sh
 export HF_TOKEN=hf_xxx    # required for gated HF datasets/models
-# ensure your token has accepted https://huggingface.co/nvidia/canary-1b-v2
+
 ```
 - Option B (NeMo from Git main):
 ```
 bash transcribe/training/runpod_setup_nemo_main.sh
-source transcribe/env.sh
-export HF_TOKEN=hf_xxx    # token must have access to https://huggingface.co/nvidia/canary-1b-v2
+
 ```
 Use Option B if you want latest NeMo features.
 
