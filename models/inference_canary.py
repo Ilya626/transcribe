@@ -17,6 +17,8 @@ import time
 
 import soundfile as sf
 import torch
+from huggingface_hub import snapshot_download
+from huggingface_hub.utils import HfHubHTTPError
 
 MODEL_ID = "nvidia/canary-1b-v2"
 
@@ -40,6 +42,28 @@ def require_cuda():
         raise RuntimeError(
             "CUDA GPU is required. CPU inference is disabled."
         )
+
+
+def ensure_model_download(mid: str, token: str | None) -> None:
+    """Pre-fetch model files to surface authorization errors early."""
+    try:
+        snapshot_download(
+            repo_id=mid,
+            token=token,
+            allow_patterns=[
+                "config.json",
+                "preprocessor_config.json",
+                "processor_config.json",
+                "*.safetensors",
+                "pytorch_model.bin",
+            ],
+            cache_dir=os.environ.get("HF_HOME"),
+        )
+    except HfHubHTTPError as e:
+        raise RuntimeError(
+            f"Unable to download {mid}: {e}. "
+            "Ensure HF_TOKEN is set and you have accepted the model's license."
+        ) from e
 
 
 def vram_report(tag: str) -> None:
@@ -153,6 +177,11 @@ def main() -> None:
     from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
     from transformers import pipeline as hf_pipeline
 
+    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+
+    # Trigger download early to emit helpful auth errors if token missing
+    ensure_model_download(args.model_id, hf_token)
+
     # GPU lock
     repo_root = Path(__file__).resolve().parents[1]
     lock_path = repo_root / ".tmp" / "gpu.lock"
@@ -164,10 +193,17 @@ def main() -> None:
     use_pipeline_only = False
     try:
         processor = AutoProcessor.from_pretrained(
-            args.model_id, language=args.language, task=args.task, trust_remote_code=True
+            args.model_id,
+            language=args.language,
+            task=args.task,
+            trust_remote_code=True,
+            token=hf_token,
         )
         model = AutoModelForSpeechSeq2Seq.from_pretrained(
-            args.model_id, torch_dtype=torch.float16, trust_remote_code=True
+            args.model_id,
+            torch_dtype=torch.float16,
+            trust_remote_code=True,
+            token=hf_token,
         )
         model.to(device).eval()
     except Exception as e:
@@ -245,6 +281,7 @@ def main() -> None:
                 trust_remote_code=True,
                 generate_kwargs={"task": args.task, "language": args.language},
                 chunk_length_s=30,
+                token=hf_token,
             )
             for i in range(0, len(audio_files), bs):
                 batch_paths = audio_files[i : i + bs]

@@ -5,8 +5,8 @@ jiwer
 sentence-transformers
 torchaudio
 vosk
-datasets
-evaluate
+datasets<3
+evaluate<0.5
 accelerate
 lightning
 nemo_toolkit
