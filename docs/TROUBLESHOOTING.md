@@ -8,6 +8,8 @@
 ## Windows specifics
 - Symlink warnings from HF Hub: enable Windows Developer Mode or ignore.
 - Long paths / backslashes: prefer absolute paths in JSONL; use UTF-8 without BOM.
+- `onnx` may fail to build on Python 3.13 — use Python 3.11/3.12 for prebuilt wheels.
+- JSONL with BOM is handled automatically, but prefer plain UTF-8 without BOM.
 
 ## GigaAM
 - Import error (sentencepiece): use Python 3.11/3.12; then `pip install gigaam` or the GitHub URL.
