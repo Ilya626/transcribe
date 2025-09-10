@@ -64,21 +64,21 @@ PRESETS: Dict[str, Dict[str, Any]] = {
         "mapper": "common_voice17",
     },
 
-    # Russian LibriSpeech (RuLS). В MLS нет русского — используем RuLS на HF.
+    # Russian LibriSpeech (RuLS). В MLS нет русского — используем версию bond005.
     "ruls": {
-        "name": "istupakov/russian_librispeech",
+        "name": "bond005/rulibrispeech",
         "config": None,
         "split": "train+validation+test",
         "mapper": "generic_text_audio",
     },
     "rulibrispeech": {  # синоним
-        "name": "istupakov/russian_librispeech",
+        "name": "bond005/rulibrispeech",
         "config": None,
         "split": "train+validation+test",
         "mapper": "generic_text_audio",
     },
     "mls-ru": {  # алиас на RuLS, т.к. в facebook/multilingual_librispeech нет 'ru'
-        "name": "istupakov/russian_librispeech",
+        "name": "bond005/rulibrispeech",
         "config": None,
         "split": "train+validation+test",
         "mapper": "generic_text_audio",
@@ -235,8 +235,10 @@ def compute_duration_seconds(path: str) -> Optional[float]:
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
 
-    # Вариант 1: пресет
+    # Вариант 1: пресет (один) или список пресетов
     ap.add_argument("--preset", type=str, default=None, help=f"One of: {', '.join(sorted(PRESETS.keys()))}")
+    ap.add_argument("--presets", nargs="+", default=None,
+                    help="Process multiple presets sequentially (outputs to --out_dir/preset.jsonl)")
 
     # Вариант 2: ручной
     ap.add_argument("--dataset", dest="name", type=str, default=None,
@@ -250,7 +252,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--audio_col", type=str, default=None, help="Audio column name (e.g., 'audio')")
     ap.add_argument("--text_col", type=str, default=None, help="Text column name (e.g., 'transcript')")
 
-    ap.add_argument("--out", type=str, required=True, help="Output JSONL path")
+    ap.add_argument("--out", type=str, help="Output JSONL path (single dataset mode)")
+    ap.add_argument("--out_dir", type=str, default=None,
+                    help="Output directory for multiple presets (required with --presets)")
 
     ap.add_argument("--drop_empty", action="store_true", help="Skip rows with empty text or missing audio")
     ap.add_argument("--min-sec", type=float, default=None, help="Keep only samples with duration >= min-sec")
@@ -295,42 +299,10 @@ def iter_examples(ds):
             yield ex
 
 
-def main():
-    args = build_parser().parse_args()
-
-    # Извлекаем параметры из пресета или ручного режима
-    if args.preset:
-        if args.preset not in PRESETS:
-            raise SystemExit(f"Unknown preset '{args.preset}'. Available: {list(PRESETS.keys())}")
-        p = PRESETS[args.preset]
-        name = normalize_repo_id(p["name"])
-        config = p.get("config")
-        split = p.get("split") or args.split
-        mapper_key = p.get("mapper")
-    else:
-        if not args.name:
-            raise SystemExit("Either --preset or --dataset must be provided.")
-        name = normalize_repo_id(args.name)
-        config = args.config
-        split = args.split
-        mapper_key = None  # выберем ниже эвристикой или по колонкам
-
-    # Кастомные колонки → свой маппер
-    mapper = None
-    if args.audio_col and args.text_col:
-        mapper = make_custom_mapper(args.audio_col, args.text_col)
-    else:
-        if args.mapper:
-            mapper_key = args.mapper
-        if not mapper_key:
-            mapper_key = choose_mapper(name, forced=None)
-        mapper = MAPPER_FUNCS[mapper_key]
-
-    # Подготовим выходную папку
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    print(f"[INFO] Loading dataset: name='{name}', config='{config}', split='{split}', trust_remote_code={args.trust_remote_code}")
+def process_dataset(name: str, config: Optional[str], split: str, mapper, args, out_path: Path) -> bool:
+    print(
+        f"[INFO] Loading dataset: name='{name}', config='{config}', split='{split}', trust_remote_code={args.trust_remote_code}"
+    )
     try:
         ds = load_dataset(
             path=name,
@@ -339,7 +311,8 @@ def main():
             trust_remote_code=args.trust_remote_code,
         )
     except Exception as e:
-        raise SystemExit(f"[ERROR] Failed to load dataset '{name}' (config={config}, split={split}).\n{e}")
+        print(f"[ERROR] Failed to load dataset '{name}' (config={config}, split={split}).\n{e}")
+        return False
 
     total = len(ds) if hasattr(ds, "__len__") else None
     written = 0
@@ -349,6 +322,7 @@ def main():
     want_min = args.min_sec is not None
     want_max = args.max_sec is not None
 
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8") as f:
         for i, ex in enumerate(iter_examples(ds)):
             row = mapper(ex)
@@ -356,12 +330,10 @@ def main():
                 skipped_empty += 1
                 continue
 
-            # drop_empty: пустой текст или отсутствующий путь
             if args.drop_empty and (not row.get("audio_filepath") or not (row.get("text") or "").strip()):
                 skipped_empty += 1
                 continue
 
-            # duration filters (optional)
             if (want_min or want_max) and row.get("audio_filepath"):
                 dur = compute_duration_seconds(row["audio_filepath"])
                 if dur is not None:
@@ -386,6 +358,77 @@ def main():
 
     print(f"[DONE] Written: {written}, skipped_empty: {skipped_empty}, skipped_dur: {skipped_dur}")
     print(f"[OUT] {out_path}")
+    return True
+
+
+def process_preset(preset: str, args, out_dir: Path) -> bool:
+    if preset not in PRESETS:
+        print(f"[SKIP] Unknown preset '{preset}'")
+        return False
+    p = PRESETS[preset]
+    name = normalize_repo_id(p["name"])
+    config = p.get("config")
+    split = p.get("split") or args.split
+    mapper_key = p.get("mapper")
+    mapper = MAPPER_FUNCS[mapper_key] if mapper_key else MAPPER_FUNCS[choose_mapper(name, None)]
+    out_path = out_dir / f"{preset.replace('-', '_')}.jsonl"
+    return process_dataset(name, config, split, mapper, args, out_path)
+
+
+def main():
+    args = build_parser().parse_args()
+
+    if args.presets:
+        if not args.out_dir:
+            raise SystemExit("--out_dir is required when using --presets")
+        out_dir = Path(args.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ok_list = []
+        fail_list = []
+        for pr in args.presets:
+            if process_preset(pr, args, out_dir):
+                ok_list.append(pr)
+            else:
+                fail_list.append(pr)
+        print(f"[SUMMARY] succeeded: {ok_list}")
+        if fail_list:
+            print(f"[SUMMARY] failed: {fail_list}")
+        return
+
+    if not args.out:
+        raise SystemExit("--out is required when not using --presets")
+
+    # Извлекаем параметры из пресета или ручного режима
+    if args.preset:
+        if args.preset not in PRESETS:
+            raise SystemExit(f"Unknown preset '{args.preset}'. Available: {list(PRESETS.keys())}")
+        p = PRESETS[args.preset]
+        name = normalize_repo_id(p["name"])
+        config = p.get("config")
+        split = p.get("split") or args.split
+        mapper_key = p.get("mapper")
+    else:
+        if not args.name:
+            raise SystemExit("Either --preset or --dataset must be provided.")
+        name = normalize_repo_id(args.name)
+        config = args.config
+        split = args.split
+        mapper_key = None  # выберем ниже эвристикой или по колонкам
+
+    mapper = None
+    if args.audio_col and args.text_col:
+        mapper = make_custom_mapper(args.audio_col, args.text_col)
+    else:
+        if args.mapper:
+            mapper_key = args.mapper
+        if not mapper_key:
+            mapper_key = choose_mapper(name, forced=None)
+        mapper = MAPPER_FUNCS[mapper_key]
+
+    out_path = Path(args.out)
+    success = process_dataset(name, config, split, mapper, args, out_path)
+    if not success:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
