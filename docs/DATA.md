@@ -96,6 +96,8 @@ python tools/filter_manifest_canary.py \
   --max_wer 0.15 --min_dur 1 --max_dur 35 --batch_size 64
 ```
 
+Requires `HF_TOKEN` with access to `nvidia/canary-1b-v2` (downloads its `.nemo`).
+
 Repeat for each dataset before mixing.
 
 ### Stage-1 RU mix (methodology ratios)

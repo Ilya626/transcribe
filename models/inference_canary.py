@@ -179,6 +179,7 @@ def main() -> None:
 
     hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
 
+
     # GPU lock
     repo_root = Path(__file__).resolve().parents[1]
     lock_path = repo_root / ".tmp" / "gpu.lock"

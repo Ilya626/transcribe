@@ -41,7 +41,7 @@ def transcribe_if_needed(
     cmd = [
         sys.executable,
         "-m",
-        "transcribe.models.inference_canary",
+        "transcribe.models.inference_canary_nemo",
         str(manifest),
         str(pred_path),
         "--model_id",
