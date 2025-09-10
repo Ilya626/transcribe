@@ -16,6 +16,7 @@ Telephony data has no HF preset, so provide its manifest via `--telephony`.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,9 +24,18 @@ from typing import List, Optional
 
 
 def run(cmd: List[str], cwd: Path) -> None:
-    """Run a subprocess in ``cwd``, echoing the command."""
+    """Run a subprocess in ``cwd``, echoing the command.
+
+    Adds the parent of ``cwd`` to ``PYTHONPATH`` so ``transcribe`` modules are
+    importable when using ``-m``.
+    """
     print("+", " ".join(cmd))
-    subprocess.run(cmd, check=True, cwd=cwd)
+    env = dict(os.environ)
+    parent = str(cwd.parent)
+    env["PYTHONPATH"] = (
+        parent + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    )
+    subprocess.run(cmd, check=True, cwd=cwd, env=env)
 
 
 def main() -> None:
