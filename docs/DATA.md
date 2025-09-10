@@ -33,7 +33,10 @@ $m | ConvertTo-Json -Depth 1 | Set-Content -Encoding UTF8 $out
 
 ## RU Megamix Prep (HF datasets)
 
-Use the helper to pull datasets from Hugging Face and convert to our JSONL format (audio_filepath, text):
+Use the helper to pull datasets from Hugging Face and convert to our JSONL format (audio_filepath, text).
+If a dataset has been downloaded manually as Parquet files, pass `--data_dir` with the
+directory that contains `<split>.parquet` for each requested split to reuse those files
+instead of fetching from the Hugging Face Hub:
 
 ```
 # Activate project-local caches (keeps HF audio under transcribe/.hf)
@@ -44,6 +47,9 @@ source env.sh
 
 # Common Voice v17 (ru)
 python tools/build_manifest_hf.py --preset cv17-ru --out data/cv17_ru.jsonl --drop_empty
+# ... or reuse pre-downloaded Parquet splits
+python tools/build_manifest_hf.py --preset cv17-ru --data_dir /mnt/datasets/cv17_ru \
+  --out data/cv17_ru.jsonl --drop_empty
 
 # Multilingual LibriSpeech (ru)
 python tools/build_manifest_hf.py --preset mls-ru --out data/mls_ru.jsonl --drop_empty

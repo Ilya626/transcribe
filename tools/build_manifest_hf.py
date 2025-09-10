@@ -22,6 +22,10 @@ Build JSONL manifests from Hugging Face datasets.
   # Podlodka
   python tools/build_manifest_hf.py --preset podlodka --out data/podlodka.jsonl --drop_empty
 
+  # Локальные Parquet-файлы (train/validation/test.parquet)
+  python tools/build_manifest_hf.py --preset cv17-ru --data_dir /path/to/cv17_ru \
+      --out data/cv17_ru.jsonl --drop_empty
+
   # Произвольный датасет/конфиг/сплит с кастомными колонками
   python tools/build_manifest_hf.py \
       --dataset UniDataPro/russian-speech-recognition-dataset \
@@ -31,6 +35,8 @@ Build JSONL manifests from Hugging Face datasets.
 Notes:
   - По умолчанию trust_remote_code=True (можно отключить --no-trust-remote-code).
   - Для фильтров по длительности можно передать --min-sec / --max-sec (нужен soundfile).
+  - Если датасет уже скачан в виде Parquet-файлов, укажите --data_dir с путем к ним
+    (ожидаются файлы <split>.parquet для всех запрошенных сплитов).
 """
 
 from __future__ import annotations
@@ -247,6 +253,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--config", type=str, default=None, help="HF dataset config (language, etc.)")
     ap.add_argument("--split", type=str, default="train",
                     help="split spec, e.g. 'train' or 'train+validation+test'")
+    ap.add_argument("--data_dir", type=str, default=None,
+                    help="Directory with pre-downloaded Parquet files (expects <split>.parquet)")
 
     # Кастомные колонки
     ap.add_argument("--audio_col", type=str, default=None, help="Audio column name (e.g., 'audio')")
@@ -301,15 +309,25 @@ def iter_examples(ds):
 
 def process_dataset(name: str, config: Optional[str], split: str, mapper, args, out_path: Path) -> bool:
     print(
-        f"[INFO] Loading dataset: name='{name}', config='{config}', split='{split}', trust_remote_code={args.trust_remote_code}"
+        f"[INFO] Loading dataset: name='{name}', config='{config}', split='{split}', trust_remote_code={args.trust_remote_code}, data_dir={args.data_dir}"
     )
     try:
-        ds = load_dataset(
-            path=name,
-            name=config,
-            split=split,
-            trust_remote_code=args.trust_remote_code,
-        )
+        if args.data_dir:
+            split_parts = [s.strip() for s in split.split('+') if s.strip()]
+            data_files = {}
+            for sp in split_parts:
+                fp = Path(args.data_dir) / f"{sp}.parquet"
+                if not fp.exists():
+                    raise FileNotFoundError(f"Missing parquet file for split '{sp}' in {args.data_dir}")
+                data_files[sp] = str(fp)
+            ds = load_dataset("parquet", data_files=data_files, split=split)
+        else:
+            ds = load_dataset(
+                path=name,
+                name=config,
+                split=split,
+                trust_remote_code=args.trust_remote_code,
+            )
     except Exception as e:
         print(f"[ERROR] Failed to load dataset '{name}' (config={config}, split={split}).\n{e}")
         return False
