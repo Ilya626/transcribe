@@ -153,6 +153,8 @@ def main() -> None:
     from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
     from transformers import pipeline as hf_pipeline
 
+    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+
     # GPU lock
     repo_root = Path(__file__).resolve().parents[1]
     lock_path = repo_root / ".tmp" / "gpu.lock"
@@ -164,10 +166,17 @@ def main() -> None:
     use_pipeline_only = False
     try:
         processor = AutoProcessor.from_pretrained(
-            args.model_id, language=args.language, task=args.task, trust_remote_code=True
+            args.model_id,
+            language=args.language,
+            task=args.task,
+            trust_remote_code=True,
+            token=hf_token,
         )
         model = AutoModelForSpeechSeq2Seq.from_pretrained(
-            args.model_id, torch_dtype=torch.float16, trust_remote_code=True
+            args.model_id,
+            torch_dtype=torch.float16,
+            trust_remote_code=True,
+            token=hf_token,
         )
         model.to(device).eval()
     except Exception as e:
@@ -245,6 +254,7 @@ def main() -> None:
                 trust_remote_code=True,
                 generate_kwargs={"task": args.task, "language": args.language},
                 chunk_length_s=30,
+                token=hf_token,
             )
             for i in range(0, len(audio_files), bs):
                 batch_paths = audio_files[i : i + bs]

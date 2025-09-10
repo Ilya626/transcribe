@@ -8,16 +8,16 @@ RuLS, GOLOS crowd/farfield, Podlodka, optional AudioSet non-speech).
 Examples:
 
   # Common Voice v17 RU (all splits), limit to 200k rows
-  python transcribe/tools/build_manifest_hf.py \
+  python tools/build_manifest_hf.py \
     --preset cv17-ru --out data/cv17_ru.jsonl --max_total 200000
 
   # Explicit dataset/config/split and columns
-  python transcribe/tools/build_manifest_hf.py \
+  python tools/build_manifest_hf.py \
     --dataset mozilla-foundation/common_voice_17_0 --config ru --split train+validation \
     --audio_col audio --text_col sentence --out data/cv17_ru_tval.jsonl
 
   # Add language/task fields
-  python transcribe/tools/build_manifest_hf.py --preset mls-ru --out data/mls_ru.jsonl \
+  python tools/build_manifest_hf.py --preset mls-ru --out data/mls_ru.jsonl \
     --source_lang ru --target_lang ru --task asr --pnc yes
 
 Notes:
@@ -32,15 +32,25 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from datasets import Audio, load_dataset, concatenate_datasets
+
+# Allow running the script directly from the repository root without manually
+# tweaking PYTHONPATH. We add the parent directory of the repo so that
+# `import transcribe.*` works even when executed as `python tools/....`.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+_PARENT = REPO_ROOT.parent
+if str(_PARENT) not in sys.path:
+    sys.path.insert(0, str(_PARENT))
+
+from datasets import Audio, concatenate_datasets, load_dataset
 
 
 def configure_local_caches() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = REPO_ROOT
     hf = os.environ.get("HF_HOME") or str(repo_root / ".hf")
     os.environ.setdefault("HF_HOME", hf)
     os.environ.setdefault("TRANSFORMERS_CACHE", hf)

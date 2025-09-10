@@ -9,11 +9,13 @@ Recommended base image
 ```
 bash transcribe/training/runpod_setup.sh
 source transcribe/env.sh
+export HF_TOKEN=hf_xxx    # required for gated HF datasets/models
 ```
 - Option B (NeMo from Git main):
 ```
 bash transcribe/training/runpod_setup_nemo_main.sh
 source transcribe/env.sh
+export HF_TOKEN=hf_xxx
 ```
 Use Option B if you want latest NeMo features.
 

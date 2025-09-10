@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -14,9 +15,18 @@ from jiwer import wer
 
 
 def run(cmd: List[str], cwd: Path) -> None:
-    """Run a subprocess in ``cwd`` echoing the command."""
+    """Run a subprocess in ``cwd`` echoing the command.
+
+    Ensures the parent of ``cwd`` is on ``PYTHONPATH`` so the ``transcribe``
+    package is importable when invoking modules via ``-m``.
+    """
     print("+", " ".join(cmd))
-    subprocess.run(cmd, check=True, cwd=cwd)
+    env = dict(os.environ)
+    parent = str(cwd.parent)
+    env["PYTHONPATH"] = (
+        parent + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    )
+    subprocess.run(cmd, check=True, cwd=cwd, env=env)
 
 
 def transcribe_if_needed(
