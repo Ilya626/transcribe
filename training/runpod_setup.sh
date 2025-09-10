@@ -13,13 +13,13 @@ python -m pip install -U pip setuptools wheel
 echo "[PIP] Installing Python deps..."
 python - <<'PY'
 import subprocess, sys
-pkgs = [
-  'nemo_toolkit',
-  'lightning',
-  'lhotse',
-  'soundfile', 'jiwer', 'einops', 'pandas', 'librosa', 'editdistance', 'webdataset',
-  'transformers', 'sentence-transformers'
-]
+    pkgs = [
+    'nemo_toolkit',
+    'lightning',
+    'lhotse',
+    'soundfile', 'jiwer', 'einops', 'pandas', 'librosa', 'editdistance', 'webdataset',
+    'transformers', 'sentence-transformers', 'hydra-core'
+    ]
 subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-U'] + pkgs)
 print('[OK] Python deps installed')
 PY
@@ -38,3 +38,4 @@ except Exception as e:
   print('[WARN] NeMo import check failed:', e)
 PY
 echo "[READY] Setup complete."
+echo "[NOTE] In new shells, run 'source env.sh' to re-enable local caches."

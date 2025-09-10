@@ -1,7 +1,9 @@
 # Datasets & Manifests
 [← Back to Documentation Index](README.md)
 
-See [Setup & Environment](ENV.md) for configuring caches.
+See [Setup & Environment](ENV.md) for configuring caches. All examples below
+assume the current working directory is the repository root (`transcribe`).
+Set `HF_TOKEN` in the environment if a dataset requires authentication.
 
 ## Reference formats
 - JSONL: one object per line with required fields:
@@ -35,45 +37,47 @@ Use the helper to pull datasets from Hugging Face and convert to our JSONL forma
 
 ```
 # Activate project-local caches (keeps HF audio under transcribe/.hf)
-. transcribe/env.ps1   # PowerShell (Windows)
-# or: source transcribe/env.sh  # bash (Linux/Runpod)
+# PowerShell (Windows)
+. env.ps1
+# or bash (Linux/Runpod)
+source env.sh
 
 # Common Voice v17 (ru)
-python transcribe/tools/build_manifest_hf.py --preset cv17-ru --out data/cv17_ru.jsonl --drop_empty
+python tools/build_manifest_hf.py --preset cv17-ru --out data/cv17_ru.jsonl --drop_empty
 
 # Multilingual LibriSpeech (ru)
-python transcribe/tools/build_manifest_hf.py --preset mls-ru --out data/mls_ru.jsonl --drop_empty
+python tools/build_manifest_hf.py --preset mls-ru --out data/mls_ru.jsonl --drop_empty
 
 # FLEURS (ru)
-python transcribe/tools/build_manifest_hf.py --preset fleurs-ru --out data/fleurs_ru.jsonl --drop_empty
+python tools/build_manifest_hf.py --preset fleurs-ru --out data/fleurs_ru.jsonl --drop_empty
 
 # Russian LibriSpeech (mirror may vary; script tries a few IDs)
-python transcribe/tools/build_manifest_hf.py --preset ruls --out data/ruls.jsonl --drop_empty
+python tools/build_manifest_hf.py --preset ruls --out data/ruls.jsonl --drop_empty
 
 # GOLOS (crowd/farfield; mirrors/configs may vary)
-python transcribe/tools/build_manifest_hf.py --preset golos-crowd --out data/golos_crowd.jsonl --drop_empty
-python transcribe/tools/build_manifest_hf.py --preset golos-farfield --out data/golos_farfield.jsonl --drop_empty
+python tools/build_manifest_hf.py --preset golos-crowd --out data/golos_crowd.jsonl --drop_empty
+python tools/build_manifest_hf.py --preset golos-farfield --out data/golos_farfield.jsonl --drop_empty
 
 # Podlodka Speech (Russian podcasts)
-python transcribe/tools/build_manifest_hf.py --preset podlodka --out data/podlodka.jsonl --drop_empty
+python tools/build_manifest_hf.py --preset podlodka --out data/podlodka.jsonl --drop_empty
 
 # Telephony (UniDataPro; may require auth)
-python transcribe/tools/build_manifest_hf.py \
+python tools/build_manifest_hf.py \
   --dataset UniDataPro/russian-speech-recognition-dataset \
   --split train+validation+test --audio_col audio --text_col transcript \
   --out data/telephony.jsonl --drop_empty
 
 # Optional non-speech (for anti-hallucination; emits empty text and nospeech=true)
-python transcribe/tools/build_manifest_hf.py --preset audioset-nonspeech --out data/nonspeech.jsonl
+python tools/build_manifest_hf.py --preset audioset-nonspeech --out data/nonspeech.jsonl
 
 # Mix manifests (concatenate)
-python transcribe/tools/mix_manifests.py \
+python tools/mix_manifests.py \
   --in cv=data/cv17_ru.jsonl --in mls=data/mls_ru.jsonl --in fleurs=data/fleurs_ru.jsonl \
   --in ruls=data/ruls.jsonl --in golos_c=data/golos_crowd.jsonl --in golos_f=data/golos_farfield.jsonl \
   --out data/ru_megamix_concat.jsonl --add_dataset_tag
 
 # Or sample to a target size with ratios
-python transcribe/tools/mix_manifests.py \
+python tools/mix_manifests.py \
   --in cv=data/cv17_ru.jsonl --in mls=data/mls_ru.jsonl --in fleurs=data/fleurs_ru.jsonl \
   --in ruls=data/ruls.jsonl --in golos_c=data/golos_crowd.jsonl --in golos_f=data/golos_farfield.jsonl \
   --out data/ru_megamix_500k.jsonl --target_size 500000 \
@@ -87,10 +91,12 @@ Here `golos_mix.jsonl` is Golos crowd+farfield concatenated.
 Run Canary on a manifest and keep only high‑quality rows (WER ≤ 0.15 by default):
 
 ```bash
-python transcribe/tools/filter_manifest_canary.py \
+python tools/filter_manifest_canary.py \
   --manifest data/cv17_ru.jsonl --out data/cv17_ru_sel.jsonl \
   --max_wer 0.15 --min_dur 1 --max_dur 35 --batch_size 64
 ```
+
+Requires `HF_TOKEN` with access to `nvidia/canary-1b-v2` (downloads its `.nemo`).
 
 Repeat for each dataset before mixing.
 
@@ -98,7 +104,7 @@ Repeat for each dataset before mixing.
 After generating the individual manifests above, combine them using the methodology default ratios:
 
 ```bash
-python transcribe/tools/build_ru_stage1_mix.py \
+python tools/build_ru_stage1_mix.py \
   --golos data/golos_mix.jsonl --cv data/cv17_ru.jsonl \
   --ruls data/ruls.jsonl --podlodka data/podlodka.jsonl \
   --telephony data/telephony.jsonl --nonspeech data/nonspeech.jsonl \
@@ -113,7 +119,7 @@ Use `--ratios` to override.
 Fetch HF datasets, convert them to manifests, filter with Canary and build the Stage‑1 mix in one go:
 
 ```bash
-python transcribe/tools/build_ru_stage1_pipeline.py \
+python tools/build_ru_stage1_pipeline.py \
   --telephony data/telephony.jsonl --out_dir data \
   --target_size 1000000 --include_nonspeech --seed 42 --batch_size 64
 ```
@@ -136,7 +142,7 @@ Tips
 If a dataset has already been downloaded to a Hugging Face cache (`.hf/datasets/.../<hash>`), turn it into `train/validation/test` JSONL manifests with:
 
 ```bash
-python transcribe/tools/hf_cache_to_manifest.py \
+python tools/hf_cache_to_manifest.py \
   --dataset_dir .hf/datasets/bond005___rulibrispeech/default/0.0.0/<hash> \
   --out_dir data/rulibrispeech
 ```

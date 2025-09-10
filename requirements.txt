@@ -5,14 +5,15 @@ jiwer
 sentence-transformers
 torchaudio
 vosk
-datasets
-evaluate
+datasets<3
+evaluate<0.5
 accelerate
 lightning
 nemo_toolkit
 lhotse
 bert-score
 matplotlib
+hydra-core
 # GigaAM requires extra installation
 # pip install git+https://github.com/salute-developers/GigaAM
 # Optional for advanced evaluation

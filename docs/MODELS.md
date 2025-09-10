@@ -9,9 +9,10 @@
 - Defaults (12GB GPU): large-v3 bs=24; turbo bs=64; distil bs=64.
 
 ## Canary (NVIDIA)
-- Script: `transcribe/models/inference_canary.py`
-- `--model_id nvidia/canary-1b-v2` (or other compatible)
-- Needs `trust_remote_code=True` (script handles it)
+- Script: `transcribe/models/inference_canary_nemo.py`
+- `--model_id nvidia/canary-1b-v2` downloads the `.nemo` from HF (requires `HF_TOKEN`)
+- Use `--nemo path/to/model.nemo` to run a local checkpoint
+- `--source_lang ru --target_lang ru --task asr` for transcription; adjust `--batch_size` as needed
 
 ## GigaAM (Salute)
 - Script: `transcribe/models/inference_gigaam.py`

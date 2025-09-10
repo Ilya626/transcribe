@@ -17,7 +17,7 @@ Prerequisites: [Setup & Environment](ENV.md), [Datasets & Manifests](DATA.md)
 - Distil large v3.5: `python transcribe/models/inference_whisper.py data/train.jsonl transcribe/preds/distil_large_v35_train.json --model_id distil-whisper/distil-large-v3.5 --language ru --task transcribe --num_beams 1 --batch_size 64`
 
 ## 2. Canary (NVIDIA)
-- `python transcribe/models/inference_canary.py data/train.jsonl transcribe/preds/canary_train_full_asr.json --model_id nvidia/canary-1b-v2 --language ru --task transcribe --batch_size 24`
+- `python transcribe/models/inference_canary_nemo.py data/train.jsonl transcribe/preds/canary_train_full_asr.json --model_id nvidia/canary-1b-v2 --source_lang ru --target_lang ru --task asr --batch_size 24`
 
 ## 3. GigaAM (Salute)
 - Install once: `pip install git+https://github.com/salute-developers/GigaAM`
@@ -30,7 +30,7 @@ Prerequisites: [Setup & Environment](ENV.md), [Datasets & Manifests](DATA.md)
 
 ## Tips
 - Add `--engine pipeline` for Whisper to chunk long-form (`chunk_length_s=30`).
-- Always set `--language ru --task transcribe` for Whisper/Canary to avoid auto-translate.
+- For Whisper, set `--language ru --task transcribe`; for Canary, use `--source_lang ru --target_lang ru --task asr` to avoid auto-translate.
 - Scripts enforce a simple GPU lock to avoid concurrent runs.
 
 ## 5. Fine-tune (Canary)
