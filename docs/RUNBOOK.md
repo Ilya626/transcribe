@@ -16,8 +16,10 @@ Prerequisites: [Setup & Environment](ENV.md), [Datasets & Manifests](DATA.md)
 - Large v3 turbo: `python transcribe/models/inference_whisper.py data/train.jsonl transcribe/preds/whisper_large_v3_turbo_train_beam2_bs10.json --model_id openai/whisper-large-v3-turbo --language ru --task transcribe --num_beams 2 --batch_size 10`
 - Distil large v3.5: `python transcribe/models/inference_whisper.py data/train.jsonl transcribe/preds/distil_large_v35_train.json --model_id distil-whisper/distil-large-v3.5 --language ru --task transcribe --num_beams 1 --batch_size 64`
 
-## 2. Canary (NVIDIA)
-- `python transcribe/models/inference_canary.py data/train.jsonl transcribe/preds/canary_train_full_asr.json --model_id nvidia/canary-1b-v2 --language ru --task transcribe --batch_size 24`
+## 2. Canary (NVIDIA NeMo)
+- `python transcribe/models/inference_canary_nemo.py data/train.jsonl transcribe/preds/canary_train_full_asr.json --model_id nvidia/canary-1b-v2 --batch_size 24`
+  - If the script can't fetch the model automatically, download it manually:
+    `wget https://huggingface.co/nvidia/canary-1b-v2/resolve/main/canary-1b-v2.nemo`
 
 ## 3. GigaAM (Salute)
 - Install once: `pip install git+https://github.com/salute-developers/GigaAM`

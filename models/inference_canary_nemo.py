@@ -34,7 +34,8 @@ def require_cuda():
 
 
 def load_nemo_model(model_id: str, nemo_path: str | None) -> "EncDecMultiTaskModel":
-    from huggingface_hub import hf_hub_download, HfHubHTTPError
+    from huggingface_hub import hf_hub_download
+    from huggingface_hub.errors import HfHubHTTPError
     from nemo.collections.asr.models import EncDecMultiTaskModel
 
     if nemo_path:
@@ -53,10 +54,26 @@ def load_nemo_model(model_id: str, nemo_path: str | None) -> "EncDecMultiTaskMod
                 local_dir_use_symlinks=False,
                 token=token,
             )
-        except HfHubHTTPError as e:
-            raise RuntimeError(
-                f"Unable to download {model_id}: {e}. Ensure HF_TOKEN is set and you have accepted the model's license."
-            ) from e
+        except Exception as e:
+            # Fallback: direct HTTP download via requests
+            url = f"https://huggingface.co/{model_id}/resolve/main/{fname}"
+            dest = Path(local_dir) / fname
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                import requests
+
+                headers = {"Authorization": f"Bearer {token}"} if token else {}
+                with requests.get(url, headers=headers, stream=True, timeout=60) as r:
+                    r.raise_for_status()
+                    with open(dest, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                path = str(dest)
+            except Exception as e2:
+                raise RuntimeError(
+                    f"Unable to download {model_id} via hf_hub or direct HTTP: {e2}"
+                ) from e2
     model = EncDecMultiTaskModel.restore_from(path, map_location="cuda")
     model.eval()
     return model
