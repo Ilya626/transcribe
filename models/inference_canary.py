@@ -17,6 +17,8 @@ import time
 
 import soundfile as sf
 import torch
+from huggingface_hub import snapshot_download
+from huggingface_hub.utils import HfHubHTTPError
 
 MODEL_ID = "nvidia/canary-1b-v2"
 
@@ -40,6 +42,28 @@ def require_cuda():
         raise RuntimeError(
             "CUDA GPU is required. CPU inference is disabled."
         )
+
+
+def ensure_model_download(mid: str, token: str | None) -> None:
+    """Pre-fetch model files to surface authorization errors early."""
+    try:
+        snapshot_download(
+            repo_id=mid,
+            token=token,
+            allow_patterns=[
+                "config.json",
+                "preprocessor_config.json",
+                "processor_config.json",
+                "*.safetensors",
+                "pytorch_model.bin",
+            ],
+            cache_dir=os.environ.get("HF_HOME"),
+        )
+    except HfHubHTTPError as e:
+        raise RuntimeError(
+            f"Unable to download {mid}: {e}. "
+            "Ensure HF_TOKEN is set and you have accepted the model's license."
+        ) from e
 
 
 def vram_report(tag: str) -> None:
