@@ -34,6 +34,8 @@ jiwer>=4.0
 # --- Audio IO ---
 soundfile>=0.12
 audioread>=3.0
+datasets>=2.19.0,<3.0
+soundfile>=0.12
 
 # --- PyAnnote bits used by NeMo ASR utilities/metrics ---
 pyannote.core>=6.0
