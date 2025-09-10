@@ -26,7 +26,7 @@ def configure_local_caches() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     hf = os.environ.get("HF_HOME") or str(repo_root / ".hf")
     os.environ.setdefault("HF_HOME", hf)
-    os.environ.setdefault("TRANSFORMERS_CACHE", hf)
+    # os.environ.setdefault("TRANSFORMERS_CACHE", hf)  # HF_HOME/HF_HUB_CACHE are sufficient
     os.environ.setdefault("HF_HUB_CACHE", str(Path(hf) / "hub"))
     os.environ.setdefault("TORCH_HOME", str(repo_root / ".torch"))
     tmp = str(repo_root / ".tmp")
