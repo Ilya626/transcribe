@@ -1,282 +1,197 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""Inference with NVIDIA Canary (NeMo .nemo checkpoint).
+
+Loads the Canary 1B v2 NeMo model and transcribes audio from a file, directory,
+JSON/JSONL manifest (with keys `audio_filepath` or `audio`). Stores results as
+JSON mapping `path -> text`.
 """
-Build JSONL manifests from Hugging Face datasets.
-
-Each output line: {"audio_filepath": "<path>", "text": "<transcript>"}
-
-Usage examples:
-  # Common Voice 17 (RU) — все сплиты
-  python tools/build_manifest_hf.py --preset cv17-ru --out data/cv17_ru.jsonl --drop_empty
-
-  # RuLibriSpeech (путь 'bond005/rulibrispeech' или 'bond005___rulibrispeech')
-  python tools/build_manifest_hf.py --preset rulibrispeech --out data/rulibri.jsonl --drop_empty
-
-  # Произвольный датасет/конфиг/сплит
-  python tools/build_manifest_hf.py \
-      --name mozilla-foundation/common_voice_17_0 --config ru \
-      --split train+validation+test --out data/cv17_ru.jsonl
-
-Notes:
-  - По умолчанию включен trust_remote_code=True (можно отключить флагом --no-trust-remote-code).
-  - Для фильтров по длительности можно передать --min-sec / --max-sec (требует soundfile).
-"""
-
-from __future__ import annotations
 import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import List
 
-# Lazy imports (datasets может не стоять у некоторых окружений)
-from datasets import load_dataset
+import torch
+import gc
 
+def configure_local_caches():
+    repo_root = Path(__file__).resolve().parents[1]
+    hf = os.environ.get("HF_HOME") or str(repo_root / ".hf")
+    os.environ.setdefault("HF_HOME", hf)
+    os.environ.setdefault("TRANSFORMERS_CACHE", hf)
+    os.environ.setdefault("HF_HUB_CACHE", str(Path(hf) / "hub"))
+    os.environ.setdefault("TORCH_HOME", str(repo_root / ".torch"))
+    tmp = str(repo_root / ".tmp")
+    os.environ.setdefault("TMP", tmp)
+    os.environ.setdefault("TEMP", tmp)
+    for d in [hf, os.environ["HF_HUB_CACHE"], os.environ["TORCH_HOME"], tmp]:
+        Path(d).mkdir(parents=True, exist_ok=True)
 
-# ----------------------------- Presets --------------------------------- #
+def require_cuda():
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA GPU is required. CPU inference is disabled.")
 
-def normalize_repo_id(repo_id: str) -> str:
-    """
-    Позволяет использовать строку вида 'user___dataset' как 'user/dataset'.
-    Ничего не меняет, если уже есть '/'.
-    """
-    if "___" in repo_id and "/" not in repo_id:
-        return repo_id.replace("___", "/")
-    return repo_id
+def load_nemo_model(model_id: str, nemo_path: str | None) -> "EncDecMultiTaskModel":
+    from huggingface_hub import hf_hub_download
+    from huggingface_hub.errors import HfHubHTTPError
+    from nemo.collections.asr.models import EncDecMultiTaskModel
 
+    if nemo_path:
+        path = nemo_path
+    else:
+        # Assume standard filename inside the repo: <last-token>.nemo
+        fname = (model_id.split("/")[-1]).strip() + ".nemo"
+        # Download into local HF cache directory for this repo
+        local_dir = str(Path(os.environ.get("HF_HOME", ".")) / f"models--{model_id.replace('/', '--')}")
+        token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+        try:
+            path = hf_hub_download(
+                repo_id=model_id,
+                filename=fname,
+                local_dir=local_dir,
+                local_dir_use_symlinks=False,
+                token=token,
+            )
+        except Exception as e:
+            # Fallback: direct HTTP download via requests
+            url = f"https://huggingface.co/{model_id}/resolve/main/{fname}"
+            dest = Path(local_dir) / fname
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                import requests
 
-PRESETS: Dict[str, Dict[str, Any]] = {
-    # Common Voice 17 RU (все сплиты)
-    "cv17-ru": {
-        "name": "mozilla-foundation/common_voice_17_0",
-        "config": "ru",
-        "split": "train+validation+test",
-        "mapper": "common_voice17",
-    },
-    # RuLibriSpeech (комьюнити-репозиторий)
-    "rulibrispeech": {
-        "name": "bond005/rulibrispeech",  # допускаем и bond005___rulibrispeech (см. normalize_repo_id)
-        "config": None,
-        "split": "train+validation+test",  # если в репо нет всех трёх — укажи нужные вручную через --split
-        "mapper": "generic_text_audio",
-    },
-    # Добавляй свои:
-    # "my-preset": {"name": "...", "config": "...", "split": "...", "mapper": "generic_text_audio"},
-}
+                headers = {"Authorization": f"Bearer {token}"} if token else {}
+                with requests.get(url, headers=headers, stream=True, timeout=60) as r:
+                    r.raise_for_status()
+                    with open(dest, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                path = str(dest)
+            except Exception as e2:
+                raise RuntimeError(
+                    f"Unable to download {model_id} via hf_hub or direct HTTP: {e2}"
+                ) from e2
+    model = EncDecMultiTaskModel.restore_from(path, map_location="cuda")
+    model.eval()
+    return model
 
-
-# --------------------------- Mappers ----------------------------------- #
-
-def _get_audio_path(ex: Dict[str, Any]) -> Optional[str]:
-    """
-    Универсальный способ вытащить путь к аудио.
-    Приоритет: ex["audio"]["path"] -> ex["path"] -> ex["audio_filepath"]
-    """
-    audio = ex.get("audio")
-    if isinstance(audio, dict):
-        p = audio.get("path")
-        if p:
-            return p
-    p = ex.get("path")
-    if isinstance(p, str) and p:
-        return p
-    p = ex.get("audio_filepath")
-    if isinstance(p, str) and p:
-        return p
-    return None
-
-
-def _get_text(ex: Dict[str, Any]) -> str:
-    """
-    Универсальный способ вытащить текст.
-    Частые поля: "sentence" (CV), "text", "normalized_text", "transcript".
-    """
-    for k in ("sentence", "text", "normalized_text", "normalized", "transcript", "transcription"):
-        v = ex.get(k)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    # Попробуем что-то читаемое в одном из строковых полей
-    for k, v in ex.items():
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    return ""
-
-
-def map_common_voice17(ex: Dict[str, Any]) -> Optional[Dict[str, str]]:
-    """
-    Специальный маппер для Common Voice 17.
-    """
-    path = _get_audio_path(ex)
-    text = ex.get("sentence") or _get_text(ex)
-    if not path:
-        return None
-    return {"audio_filepath": path, "text": text or ""}
-
-
-def map_generic_text_audio(ex: Dict[str, Any]) -> Optional[Dict[str, str]]:
-    """
-    Маппер "по умолчанию": ищет аудио и текст в типичных местах.
-    Подходит для многих комьюнити-датасетов, включая RuLibriSpeech.
-    """
-    path = _get_audio_path(ex)
-    text = _get_text(ex)
-    if not path:
-        return None
-    return {"audio_filepath": path, "text": text or ""}
-
-
-MAPPER_FUNCS = {
-    "common_voice17": map_common_voice17,
-    "generic_text_audio": map_generic_text_audio,
-}
-
-
-# ----------------------- Duration (optional) --------------------------- #
-
-def compute_duration_seconds(path: str) -> Optional[float]:
-    """
-    По желанию: оценка длительности через soundfile (без декодирования в numpy).
-    Возвращает None, если не удалось.
-    """
-    try:
-        import soundfile as sf
-        info = sf.info(path)
-        if info.frames and info.samplerate:
-            return float(info.frames) / float(info.samplerate)
-        # иногда soundfile не даёт frames — попытаемся прочесть заголовок
-        return getattr(info, "duration", None)
-    except Exception:
-        return None
-
-
-# ------------------------------ Main ----------------------------------- #
-
-def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    # Способ 1: пресет
-    ap.add_argument("--preset", type=str, default=None, help=f"One of: {', '.join(PRESETS.keys())}")
-
-    # Способ 2: ручное задание
-    ap.add_argument("--name", type=str, default=None, help="HF dataset repo id, e.g. mozilla-foundation/common_voice_17_0")
-    ap.add_argument("--config", type=str, default=None, help="HF dataset config (language, etc.)")
-    ap.add_argument("--split", type=str, default="train", help="split spec, e.g. 'train' or 'train+validation+test'")
-
-    ap.add_argument("--out", type=str, required=True, help="Output JSONL path")
-
-    ap.add_argument("--drop_empty", action="store_true", help="Skip rows with empty text or missing audio")
-    ap.add_argument("--min-sec", type=float, default=None, help="Keep only samples with duration >= min-sec")
-    ap.add_argument("--max-sec", type=float, default=None, help="Keep only samples with duration <= max-sec")
-    ap.add_argument("--max-rows", type=int, default=None, help="Limit number of rows written")
-
-    # trust_remote_code по умолчанию ВКЛ — чтобы CV17 и комьюнити-датасеты грузились без ошибки
-    ap.add_argument("--trust-remote-code", dest="trust_remote_code", action="store_true", default=True,
-                    help="Allow running dataset repo code (default: True)")
-    ap.add_argument("--no-trust-remote-code", dest="trust_remote_code", action="store_false",
-                    help="Disable running dataset repo code")
-
-    ap.add_argument("--mapper", type=str, default=None,
-                    help=f"Force mapper: {', '.join(MAPPER_FUNCS.keys())}. If omitted, chosen by preset or heuristics.")
-
-    return ap
-
-
-def choose_mapper(name: str, forced: Optional[str]) -> str:
-    if forced:
-        if forced not in MAPPER_FUNCS:
-            raise ValueError(f"Unknown mapper '{forced}'. Available: {list(MAPPER_FUNCS.keys())}")
-        return forced
-
-    n = name.lower()
-    if "common_voice" in n:
-        return "common_voice17"
-    # по умолчанию — универсальный
-    return "generic_text_audio"
-
+def collect_audio(input_path: Path) -> List[Path]:
+    exts = {".wav", ".flac", ".mp3"}
+    if input_path.is_file():
+        if input_path.suffix.lower() == ".jsonl":
+            out: List[Path] = []
+            with input_path.open("r", encoding="utf-8-sig") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    o = json.loads(line)
+                    p = o.get("audio_filepath") or o.get("audio")
+                    if p:
+                        out.append(Path(p))
+            return out
+        if input_path.suffix.lower() == ".json":
+            with input_path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return [Path(k) for k in data.keys()]
+            elif isinstance(data, list):
+                out: List[Path] = []
+                for o in data:
+                    if isinstance(o, dict):
+                        p = o.get("audio_filepath") or o.get("audio")
+                        if p:
+                            out.append(Path(p))
+                return out
+        return [input_path]
+    else:
+        return sorted(p for p in input_path.rglob("*") if p.suffix.lower() in exts)
 
 def main():
-    args = build_parser().parse_args()
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("input", type=str, help="Path to audio file/dir or JSON/JSONL manifest")
+    ap.add_argument("output", type=str, help="Path to output JSON file")
+    ap.add_argument("--model_id", default="nvidia/canary-1b-v2", help="HF repo id with .nemo file")
+    ap.add_argument("--nemo", default=None, help="Path to local .nemo file (overrides --model_id)")
+    ap.add_argument("--batch_size", type=int, default=32)
+    ap.add_argument("--source_lang", default="ru", help="Source language code (e.g., ru)")
+    ap.add_argument("--target_lang", default="ru", help="Target language code (use same as source for transcription)")
+    ap.add_argument("--task", default="asr", choices=["asr", "translate"], help="Task: asr (transcribe) or translate")
+    ap.add_argument("--pnc", default="yes", choices=["yes", "no"], help="Include punctuation (yes/no)")
+    args = ap.parse_args()
 
-    if args.preset:
-        if args.preset not in PRESETS:
-            raise SystemExit(f"Unknown preset '{args.preset}'. Available: {list(PRESETS.keys())}")
-        p = PRESETS[args.preset]
-        name = normalize_repo_id(p["name"])
-        config = p.get("config")
-        split = p.get("split") or args.split
-        mapper_key = p.get("mapper")
-    else:
-        if not args.name:
-            raise SystemExit("Either --preset or --name must be provided.")
-        name = normalize_repo_id(args.name)
-        config = args.config
-        split = args.split
-        mapper_key = None  # выберем ниже эвристикой
+    configure_local_caches()
+    require_cuda()
 
-    if args.mapper:
-        mapper_key = args.mapper
-    if not mapper_key:
-        mapper_key = choose_mapper(name, forced=None)
+    model = load_nemo_model(args.model_id, args.nemo)
 
-    mapper = MAPPER_FUNCS[mapper_key]
+    audio_files = collect_audio(Path(args.input))
+    results: dict[str, str] = {}
 
-    # Подготовим выходную папку
-    out_path = Path(args.out)
+    # Use model.transcribe on batches of file paths
+    bs = max(1, int(args.batch_size))
+    def _to_text(h) -> str:
+        try:
+            if isinstance(h, str):
+                return h
+            if isinstance(h, dict):
+                return h.get("text") or h.get("pred_text") or h.get("transcription") or next((v for v in h.values() if isinstance(v, str)), "")
+            # Hypothesis-like objects
+            for attr in ("text", "pred_text", "transcription", "answer"):
+                if hasattr(h, attr):
+                    v = getattr(h, attr)
+                    if isinstance(v, str):
+                        return v
+            return str(h)
+        except Exception:
+            return ""
+
+    def vram_report(tag: str) -> None:
+        try:
+            dev = torch.cuda.current_device()
+            total = torch.cuda.get_device_properties(dev).total_memory
+            free, _total_rt = torch.cuda.mem_get_info()
+            alloc = torch.cuda.memory_allocated(dev)
+            reserv = torch.cuda.memory_reserved(dev)
+            gb = 1024 ** 3
+            print(f"[VRAM:{tag}] alloc={{alloc/gb:.2f}}G reserved={{reserv/gb:.2f}}G free={{free/gb:.2f}}G total={{total/gb:.2f}}G")
+        except Exception:
+            pass
+
+    for i in range(0, len(audio_files), bs):
+        batch = audio_files[i : i + bs]
+        print(f"Transcribing batch {{i//bs+1}} [{{len(batch)}} files] ...")
+        paths = [str(p) for p in batch]
+        hyps = None
+        try:
+            hyps = model.transcribe(
+                paths,
+                batch_size=bs,
+                source_lang=args.source_lang,
+                target_lang=args.target_lang,
+                task=args.task,
+                pnc=args.pnc,
+            )
+            for p, h in zip(batch, hyps):
+                results[str(p)] = _to_text(h)
+        finally:
+            # Aggressive cleanup between batches to avoid lingering allocations
+            try:
+                del hyps
+                del paths
+            except Exception:
+                pass
+            try:
+                torch.cuda.synchronize()
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+            gc.collect()
+            vram_report(f"batch_{{i//bs+1}}")
+
+    out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-
-    print(f"[INFO] Loading dataset: name='{name}', config='{config}', split='{split}', trust_remote_code={args.trust_remote_code}")
-    ds = load_dataset(
-        path=name,
-        name=config,
-        split=split,
-        trust_remote_code=args.trust_remote_code,
-    )
-
-    total = len(ds)
-    written = 0
-    skipped_empty = 0
-    skipped_dur = 0
-
-    want_min = args.min_sec is not None
-    want_max = args.max_sec is not None
-
     with out_path.open("w", encoding="utf-8") as f:
-        for i, ex in enumerate(ds):
-            row = mapper(ex)
-            if row is None:
-                skipped_empty += 1
-                continue
-
-            # drop_empty: пустой текст или отсутствующий путь
-            if args.drop_empty and (not row.get("audio_filepath") or not (row.get("text") or "").strip()):
-                skipped_empty += 1
-                continue
-
-            # duration filters (optional)
-            if (want_min or want_max) and row.get("audio_filepath"):
-                dur = compute_duration_seconds(row["audio_filepath"])
-                if dur is None:
-                    # не удалось оценить — считаем, что подходит (или можно скипнуть, если нужно строго)
-                    pass
-                else:
-                    if want_min and dur < float(args.min_sec):
-                        skipped_dur += 1
-                        continue
-                    if want_max and dur > float(args.max_sec):
-                        skipped_dur += 1
-                        continue
-
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
-            written += 1
-
-            if args.max_rows is not None and written >= int(args.max_rows):
-                print(f"[INFO] Reached --max-rows={args.max_rows}, stopping early.")
-                break
-
-            if (i + 1) % 500 == 0:
-                print(f"[PROGRESS] {i + 1}/{total} processed, {written} written...")
-
-    print(f"[DONE] Processed: {total}, written: {written}, skipped_empty: {skipped_empty}, skipped_dur: {skipped_dur}")
-    print(f"[OUT] {out_path}")
+        json.dump(results, f, ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":
