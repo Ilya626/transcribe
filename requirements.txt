@@ -1,20 +1,50 @@
 transformers>=4.39.0
 torch
-soundfile
-jiwer
 sentence-transformers
 torchaudio
-requests
 vosk
-datasets<3
 evaluate<0.5
 accelerate
-lightning
 nemo_toolkit
 lhotse
 bert-score
 matplotlib
+
 # GigaAM requires extra installation
 # pip install git+https://github.com/salute-developers/GigaAM
 # Optional for advanced evaluation
 # natasha
+
+# --- Core config / training utils (required by NeMo) ---
+hydra-core==1.3.2
+omegaconf==2.3.0
+lightning>=2.2,<2.5
+
+# --- Hugging Face tooling (manifests + hub download) ---
+datasets>=2.19.0
+huggingface_hub>=0.23
+requests>=2.31
+
+# --- Tokenization / text ---
+sentencepiece>=0.1.99
+sacrebleu>=2.4
+editdistance>=0.8
+jiwer>=4.0
+
+# --- Audio IO ---
+soundfile>=0.12
+audioread>=3.0
+
+# --- PyAnnote bits used by NeMo ASR utilities/metrics ---
+pyannote.core>=6.0
+pyannote.metrics>=3.2
+
+# --- Numerics: pinned to be compatible with Numba stack ---
+numpy==2.2.2
+llvmlite==0.44.0
+numba==0.61.2
+scipy>=1.13    # pip подберёт 1.14.x при необходимости под numpy 2.2.x
+pandas>=2.2
+
+# --- Misc utils ---
+ipython>=8.10
