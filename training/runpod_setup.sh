@@ -38,3 +38,4 @@ except Exception as e:
   print('[WARN] NeMo import check failed:', e)
 PY
 echo "[READY] Setup complete."
+echo "[NOTE] In new shells, run 'source env.sh' to re-enable local caches."
