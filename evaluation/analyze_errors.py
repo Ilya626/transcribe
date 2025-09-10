@@ -3,6 +3,12 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+import sys
+
+repo_root = Path(__file__).resolve().parents[1]
+parent = repo_root.parent
+if str(parent) not in sys.path:
+    sys.path.append(str(parent))
 
 from transcribe.evaluation.advanced.align import (
     NormConfig,

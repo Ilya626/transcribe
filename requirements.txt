@@ -4,6 +4,7 @@ soundfile
 jiwer
 sentence-transformers
 torchaudio
+requests
 vosk
 datasets<3
 evaluate<0.5

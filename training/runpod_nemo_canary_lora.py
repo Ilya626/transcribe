@@ -200,10 +200,27 @@ def main():
         Path(os.environ["TORCH_HOME"]).mkdir(parents=True, exist_ok=True)
 
         print(f"[DL] Downloading {args.model_id}:{args.nemo_name} from Hugging Face...")
+        token = os.environ.get("HF_TOKEN")
         try:
-            downloaded = hf_hub_download(repo_id=args.model_id, filename=args.nemo_name, token=os.environ.get("HF_TOKEN"))
+            downloaded = hf_hub_download(repo_id=args.model_id, filename=args.nemo_name, token=token)
         except Exception as e:
-            raise SystemExit(f"[ERR] Failed to download {args.model_id}/{args.nemo_name}: {e}")
+            print(f"[WARN] hf_hub_download failed: {e}. Trying direct HTTP...")
+            url = f"https://huggingface.co/{args.model_id}/resolve/main/{args.nemo_name}"
+            dest = Path(os.environ["HF_HOME"]) / args.nemo_name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                import requests
+
+                headers = {"Authorization": f"Bearer {token}"} if token else {}
+                with requests.get(url, headers=headers, stream=True, timeout=60) as r:
+                    r.raise_for_status()
+                    with open(dest, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                downloaded = str(dest)
+            except Exception as e2:
+                raise SystemExit(f"[ERR] Failed to download {url}: {e2}") from e2
 
         # If a destination path was requested, copy there; else use cache path
         if nemo_path.suffix.lower() == ".nemo":

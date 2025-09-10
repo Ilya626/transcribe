@@ -79,20 +79,7 @@ def evaluate(
     )
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("references", type=str, help="Path to reference transcripts JSON")
-    parser.add_argument("predictions", nargs="+", help="Prediction JSON files to compare")
-    parser.add_argument(
-        "--model",
-        default="paraphrase-multilingual-mpnet-base-v2",
-        help="Sentence-transformer model for semantic similarity",
-    )
-    args = parser.parse_args()
-
-    _ensure_local_caches()
-    refs = load_json_or_jsonl(Path(args.references))
-def _ensure_local_caches():
+def _ensure_local_caches() -> None:
     """Ensure HF/Torch caches live under the repo directory."""
     try:
         repo_root = Path(__file__).resolve().parents[1]
@@ -109,6 +96,20 @@ def _ensure_local_caches():
     except Exception:
         pass
 
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("references", type=str, help="Path to reference transcripts JSON")
+    parser.add_argument("predictions", nargs="+", help="Prediction JSON files to compare")
+    parser.add_argument(
+        "--model",
+        default="paraphrase-multilingual-mpnet-base-v2",
+        help="Sentence-transformer model for semantic similarity",
+    )
+    args = parser.parse_args()
+
+    _ensure_local_caches()
+    refs = load_json_or_jsonl(Path(args.references))
     st_model = SentenceTransformer(args.model)
 
     for pred_path in args.predictions:
@@ -128,9 +129,7 @@ def _ensure_local_caches():
         print(f"WER: {wer_score:.4f}")
         print(f"CER: {cer_score:.4f}")
         print(f"SER: {ser_score:.4f}")
-        print(
-            f"Substitutions: {subs} | Insertions: {ins} | Deletions: {dels}"
-        )
+        print(f"Substitutions: {subs} | Insertions: {ins} | Deletions: {dels}")
         print(f"Semantic similarity: {semantic:.4f}")
 
 
