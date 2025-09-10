@@ -15,17 +15,18 @@ from jiwer import wer
 
 
 def run(cmd: List[str], cwd: Path) -> None:
-    """Run a subprocess in ``cwd`` echoing the command.
-
-    Ensures the parent of ``cwd`` is on ``PYTHONPATH`` so the ``transcribe``
-    package is importable when invoking modules via ``-m``.
     """
+    Run a subprocess in `cwd` echoing the command.
+
+    Ensures the parent of `cwd` is on PYTHONPATH so the `transcribe` package
+    is importable when invoking modules via `-m transcribe....`.
+    """
+
     print("+", " ".join(cmd))
     env = dict(os.environ)
     parent = str(cwd.parent)
-    env["PYTHONPATH"] = (
-        parent + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    )
+    sep = os.pathsep  # ':' on Unix, ';' on Windows
+    env["PYTHONPATH"] = parent + (sep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
     subprocess.run(cmd, check=True, cwd=cwd, env=env)
 
 
@@ -38,9 +39,11 @@ def transcribe_if_needed(
 ) -> None:
     if pred_path.exists():
         return
-    cmd = [
-        sys.executable,
+
+    base = [
+        str(sys.executable),
         "-m",
+        # try package style first, then fall back to local module
         "transcribe.models.inference_canary_nemo",
         str(manifest),
         str(pred_path),
@@ -48,8 +51,17 @@ def transcribe_if_needed(
         model_id,
     ]
     if batch_size:
-        cmd.extend(["--batch_size", str(batch_size)])
-    run(cmd, cwd=repo_root)
+        base.extend(["--batch_size", str(batch_size)])
+
+    try:
+        run(base, cwd=repo_root)
+    except subprocess.CalledProcessError:
+        base_alt = base.copy()
+        base_alt[2] = "models.inference_canary_nemo"
+        run(base_alt, cwd=repo_root)
+
+    if not pred_path.exists():
+        raise RuntimeError(f"Inference finished but predictions file not found: {pred_path}")
 
 
 def iter_jsonl(path: Path):
